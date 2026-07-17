@@ -1,0 +1,78 @@
+sequenceDiagram
+    autonumber
+    participant A as Airflow (Scheduler)
+    participant UI as Streamlit Dashboard
+    participant S as Scraper.py (Playwright)
+    participant C as Cleaner.py (Pandas)
+    participant AN as Analyzer.py (Logic)
+    participant DB as Postgres (DB)
+    participant W as Real Estate Portals
+
+    Note over A, W: Phase 1: Scraping
+    A->>S: Trigger Scrape Task
+    S->>DB: INSERT into orchestration.batches (Status: RUNNING)
+    S->>DB: INSERT into raw.execution_logs (Status: RUNNING)
+    S->>DB: Fetch active search_criteria
+    DB-->>S: List of targets & filters
+    S->>W: HTTPS Requests (Playwright)
+    
+    alt Scraping Failure (e.g. 403 Forbidden)
+        S->>DB: UPDATE raw.execution_logs (Status: FAILED, Error Msg)
+    else Scraping Success
+        W-->>S: HTML/JSON Data
+        S->>DB: INSERT into raw.listings
+        S->>DB: UPDATE raw.execution_logs (Status: SUCCESS)
+    end
+    S-->>A: Task Finished
+
+    UI->>DB: SELECT status FROM raw.execution_logs WHERE status='FAILED' AND batch_id=N
+    DB-->>UI: Error information
+    UI->>UI: Send toast trigger if any errors are found
+
+    Note over A, DB: Phase 2: Processing
+    A->>C: Trigger Clean Task
+    C->>DB: SELECT raw where clean_listing_id IS NULL AND batch_id = N
+    DB-->C: Current batch's raw listings
+    
+    loop For each raw record
+        C->>DB: INSERT into clean.execution_logs (Status: RUNNING)
+        C->>C: Try parsing JSON
+        alt Parsing Error
+            C->>DB: UPDATE clean.execution_logs (Status: FAILED, Error Msg)
+        else Parsing Success
+            C->>DB: UPDATE clean.execution_logs (Status: SUCCESS)
+            C->>DB: UPSERT clean.listings & price_history
+            C->>DB: UPDATE raw.listings (set clean_listing_id)
+        end
+    end
+    C-->>A: Task Finished
+
+    UI->>DB: SELECT status FROM clean.execution_logs WHERE status='FAILED' AND batch_id=N
+    DB-->>UI: Error information
+    UI->>UI: Send toast trigger if any errors are found
+
+    Note over A, DB: Phase 3: Insights
+    
+    A->>AN: Trigger Analyze Task
+    AN->>DB: Fetch analysis methods for this batch
+    AN->>DB: Fetch analysis methods for global notifications
+    DB-->AN: List of batch & anomaly analysis methods
+    AN->>DB: SELECT clean where batch_id = N
+    DB-->AN: Current batch's clean listings
+    loop For each clean record
+        AN->>DB: INSERT into analytics.execution_logs (Status: RUNNING)
+        AN->>AN: Perform analysis
+        alt Analysis Error
+            AN->>DB: UPDATE analytics.execution_logs (Status: Failed, Error Msg)
+        else Analysis Success
+            AN->>DB: UPDATE analytics.execution_logs (Status: SUCCESS)
+            AN->>DB: INSERT into analytics.detected_anomalies
+        end
+    end
+    AN->>DB: INSERT into analytics.batch_metrics
+    AN->>DB: UPDATE orchestration.batches (Status: SUCCESS, finished_at)
+    AN-->>A: Task Finished
+
+    UI->>DB: SELECT status FROM analytics.execution_logs WHERE status='FAILED' AND batch_id=N
+    DB-->>UI: Error information
+    UI->>UI: Send toast trigger if any errors are found

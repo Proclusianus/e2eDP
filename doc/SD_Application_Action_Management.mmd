@@ -1,0 +1,39 @@
+sequenceDiagram
+    autonumber
+    actor U as User
+    participant UI as Streamlit Dashboard
+    participant DBM as DBManager.py
+    participant DB as Postgres (config)
+
+    Note over U, DB: CRUD Operations for Search Criteria & Global Rules
+
+    alt Create New Search Criteria / Global Rule
+        U->>UI: Input parameters (Cities, Filters, Analysis types, Schedule)
+        UI->>DBM: save_new_config(data_package)
+        rect rgb(240, 240, 240)
+            Note right of DBM: Transactional Integrity
+            DBM->>DB: INSERT/GET Location IDs
+            DBM->>DB: INSERT criteria/rule (RETURNING id)
+            DBM->>DB: INSERT into schedule tables (time)
+            DBM->>DB: INSERT relations (locations, analysis link tables)
+        end
+        DB-->>UI: Success (ID returned)
+        UI-->>U: Show "Activated" Toast
+    
+    else Deactivate / Reactivate
+        U->>UI: Toggle Active Switch
+        UI->>DBM: update_status(id, new_status)
+        DBM->>DB: UPDATE table SET is_active = new_status WHERE id = N
+        DB-->>UI: OK
+        UI-->>U: UI updates (Status Icon change)
+
+    else Soft Delete
+        U->>UI: Click Delete
+        UI->>DBM: perform_soft_delete(id)
+        rect rgb(255, 245, 245)
+            DBM->>DB: UPDATE table SET is_active = FALSE, is_soft_deleted = TRUE WHERE id = N
+            DBM->>DB: DELETE FROM schedule tables WHERE criteria_id = N
+        end
+        DB-->>UI: OK
+        UI-->>U: Remove from main list
+    end

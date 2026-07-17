@@ -1,0 +1,28 @@
+sequenceDiagram
+    autonumber
+    actor U as User
+    participant UI as Streamlit Dashboard
+    participant DB_C as Postgres (config)
+    participant A as Airflow (Scheduler)
+    participant M as Maintenance.py
+    participant DB_D as Postgres (raw/clean)
+
+    Note over U, DB_C: Phase 1: Configuration
+    U->>UI: Set Retention Days (e.g., 60 days) & Toggle ON
+    UI->>DB_C: UPDATE system_settings SET value=60, enabled=true
+    DB_C-->>UI: Success
+    UI-->>U: Settings saved
+
+    Note over A, DB_D: Phase 2: Execution (Scheduled)
+    A->>M: Trigger Maintenance Task
+    M->>DB_C: GET system_settings (key, value, enabled)
+    DB_C-->>M: Settings Data
+    
+    alt is_enabled == true
+        M->>DB_D: DELETE FROM raw.listings WHERE scraped_at < X days
+        M->>DB_D: UPDATE clean.listings SET is_active=FALSE WHERE last_seen < Y days
+        DB_D-->>M: Records affected
+        M-->>A: Task Finished Successfully
+    else is_enabled == false
+        M-->>A: Task Skipped (User Disabled)
+    end

@@ -1,0 +1,49 @@
+graph TD
+    subgraph Host ["Host System (Windows / WSL2)"]
+        subgraph LocalFiles ["Local Project Workspace"]
+            SQL["./sql (DB Management)"]
+            SRC["./src (Python Modules)"]
+            ENV[".env (Configuration)"]
+        end
+    end
+
+    subgraph Docker ["Docker Infrastructure (pricing_network)"]
+        subgraph DB_Cont ["Container: pricing_postgres"]
+            DB_Engine["PostgreSQL 15 Engine"]
+        end
+        
+        DB_Vol[("Volume: postgres_data")]
+
+        subgraph App_Cont ["Container: pricing_airflow"]
+            AF_Runtime["Airflow Standalone Orchestrator"]
+            
+            subgraph Logic ["Execution Layer"]
+                Python_Scripts["Custom Python Scripts (Scraper, ETL, Analyzer)"]
+                PW_Engine["Playwright + Chromium (Automation Engine)"]
+            end
+        end
+    end
+
+    subgraph Internet ["External World"]
+        RE_Websites["Real Estate Listing Websites"]
+    end
+
+    %% Relacje
+    SQL -- "Schema & Data Management" --> DB_Engine
+    SRC -- "Live Mounting" --> Python_Scripts
+    ENV -- "Environment Injection" --> AF_Runtime
+    
+    DB_Engine -- "Persists Data To" --> DB_Vol
+    
+    AF_Runtime -- "Triggers & Schedules" --> Python_Scripts
+    Python_Scripts -- "Uses for Web Interaction" --> PW_Engine
+    
+    PW_Engine -- "HTTPS Data Scraping" --> RE_Websites
+    
+    Python_Scripts -- "SQL Transactions" --> DB_Engine
+
+    %% Styl
+    style Docker fill:#f9f9f9,stroke:#333,stroke-width:2px
+    style Host fill:#e1f5fe,stroke:#01579b
+    style DB_Vol fill:#fff9c4,stroke:#fbc02d
+    style Logic fill:#f1f8e9,stroke:#33691e

@@ -1,0 +1,52 @@
+sequenceDiagram
+    autonumber
+    actor U as User
+    participant UI as Streamlit Dashboard
+    participant RG as ReportGenerator.py
+    participant DBM as DBManager.py
+    participant DB as Postgres (clean/analytics)
+
+    Note over U, DB: User wants to see market insights
+
+    U->>UI: Select Data Target (e.g. "Kraków - Sale")
+    
+    par Load Market Trends (Macro)
+        UI->>DBM: get_batch_metrics(criteria_id)
+        DBM->>DB: SELECT metrics, calculated_at FROM analytics.batch_metrics WHERE criteria_id = N
+        DB-->>DBM: JSONB data (AVG, Median, Supply)
+        DBM->>DBM: Flatten JSON to Pandas DataFrame
+    and Load Current Anomalies (Micro)
+        UI->>DBM: get_latest_anomalies(criteria_id, read_only_new)
+        DBM->>DB: SELECT * FROM analytics.detected_anomalies WHERE criteria_id = N
+        DB-->>DBM: List of anomalies + listing_snapshots
+    end
+
+    DBM-->>UI: Structured Data for Charts & Tables
+
+    Note over UI: Data Processing (Pandas/Plotly)
+    UI->>UI: Generate Charts
+    UI->>UI: Generate Anomaly List
+    
+    UI-->>U: Display Interactive Dashboard
+    
+    U->>UI: Click "Mark as Read" on an anomaly
+    UI->>DBM: update_anomaly_status(anomaly_id)
+    DBM->>DB: UPDATE detected_anomalies SET is_read = true WHERE id = N
+    DB-->>UI: OK
+    UI-->>U: Anomaly disappears from "New" list
+
+    Note over U, DB: User wants a portable PDF report
+
+    U->>UI: Click "Generate PDF Report"
+    UI->>RG: trigger_report_generation(criteria_id)
+    
+    RG->>DBM: get_report_data(criteria_id)
+    DBM->>DB: SELECT recent anomalies & batch metrics
+    DB-->>DBM: Data result set
+    DBM-->>RG: Structured Data (DataFrames)
+    
+    RG->>RG: Generate Charts (Plotly/Matplotlib)
+    RG->>RG: Format PDF Layout (Header, Tables, Charts)
+    
+    RG-->>UI: PDF Byte Stream
+    UI-->>U: Trigger Browser Download (report.pdf)

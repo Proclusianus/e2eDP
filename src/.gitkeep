@@ -1,0 +1,32 @@
+# Plik mówiący co github ma nie trackować
+# * - n charów
+# ? - jeden char
+# ! - negacja
+# [a-z] - set charow
+
+# Tu są hasła - nietrackować
+.env
+
+# Pozostałe
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+ENV/
+
+logs/*
+!logs/.gitkeep
+plugins/*
+!plugins/.gitkeep
+
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+*.db
+*.csv
+*.json
+!config/*.json
+!config/*.yaml

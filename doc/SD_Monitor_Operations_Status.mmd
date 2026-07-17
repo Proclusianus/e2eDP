@@ -1,0 +1,22 @@
+sequenceDiagram
+    autonumber
+    actor U as User
+    participant UI as Streamlit Dashboard
+    participant DBM as DBManager.py
+    participant DB as Postgres (Logs)
+
+    U->>UI: Open "Operations Status" Tab
+    UI->>DBM: get_health_report()
+    
+    par Query Raw Logs
+        DBM->>DB: SELECT * FROM raw.execution_logs
+    and Query Clean Logs
+        DBM->>DB: SELECT * FROM clean.execution_logs
+    and Query Analytics Logs
+        DBM->>DB: SELECT * FROM analytics.execution_logs
+    end
+    
+    DB-->>DBM: Collection of Statuses & Errors
+    DBM->>DBM: Format & Categorize Errors
+    DBM-->>UI: Structured Health Data
+    UI-->>U: Display Color-Coded Error List & Statistics

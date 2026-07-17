@@ -1,0 +1,507 @@
+
+Enum "config"."transaction_type_enum" {
+  "sale"
+  "rent"
+}
+
+Enum "config"."market_type_enum" {
+  "primary"
+  "secondary"
+  "both"
+}
+
+Table "config"."system_settings" {
+  "id" SERIAL [pk, increment]
+  "setting_key" varchar(50) [unique, not null]
+  "setting_value" integer [not null]
+  "is_enabled" boolean [not null, default: true]
+  "description_pl" text
+  "description_en" text
+}
+
+Table "config"."global_notification_rules" {
+  "id" SERIAL [pk, increment]
+  "rule_name" varchar(255) [not null]
+  "description" text
+  "transaction_type" config.transaction_type_enum [not null]
+  "is_searching_all_cities" boolean [not null, default: false]
+  "is_active" boolean [not null, default: true]
+  "is_soft_deleted" boolean [not null, default: false]
+  "created_at" timestamp [not null, default: `now()`]
+}
+
+Table "config"."search_criteria" {
+  "id" SERIAL [pk, increment]
+  "target_name" varchar(255) [not null]
+  "description" text
+  "transaction_type" config.transaction_type_enum [not null]
+  "market_type" config.market_type_enum [not null]
+  "min_price" decimal(12,2)
+  "max_price" decimal(12,2)
+  "min_area" decimal(8,2)
+  "max_area" decimal(8,2)
+  "is_active" boolean [not null, default: true]
+  "is_soft_deleted" boolean [not null, default: false]
+  "created_at" timestamp [not null, default: `now()`]
+
+  Checks {
+    `min_price >= 0 AND max_price >= min_price` [name: 'price_check']
+    `min_area >= 0 AND max_area >= min_area` [name: 'area_check']
+  }
+
+  Indexes {
+    (is_active, is_soft_deleted) [name: "idx_config_criteria_active"]
+  }
+}
+
+Table "config"."locations" {
+  "id" SERIAL [pk, increment]
+  "city_name" varchar(100) [unique, not null]
+}
+
+Table "config"."criteria_locations" {
+  "criteria_id" integer
+  "location_id" integer
+
+  Indexes {
+    (criteria_id, location_id) [pk]
+  }
+}
+
+Table "config"."global_rule_locations" {
+  "global_rule_id" integer
+  "location_id" integer
+
+  Indexes {
+    (global_rule_id, location_id) [pk]
+  }
+}
+
+Table "config"."property_types" {
+  "id" SERIAL [pk, increment]
+  "type_name" varchar(50) [unique, not null]
+}
+
+Table "config"."criteria_property_types" {
+  "criteria_id" integer
+  "property_type_id" integer
+
+  Indexes {
+    (criteria_id, property_type_id) [pk]
+  }
+}
+
+Table "config"."room_counts" {
+  "id" SERIAL [pk, increment]
+  "room_label" varchar(10) [unique, not null]
+}
+
+Table "config"."criteria_rooms" {
+  "criteria_id" integer
+  "room_id" integer
+
+  Indexes {
+    (criteria_id, room_id) [pk]
+  }
+}
+
+Table "config"."search_criteria_schedule" {
+  "id" SERIAL [pk, increment]
+  "criteria_id" integer [not null]
+  "execution_time" time [not null]
+
+  Indexes {
+    (criteria_id, execution_time) [unique]
+    execution_time [name: "idx_criteria_schedule_time"]
+  }
+}
+
+Table "config"."global_rules_schedule" {
+  "id" SERIAL [pk, increment]
+  "global_rule_id" integer [not null]
+  "execution_time" time [not null]
+
+  Indexes {
+    (global_rule_id, execution_time) [unique]
+    execution_time [name: "idx_global_schedule_time"]
+  }
+}
+
+Table "config"."batch_analysis_dictionary" {
+  "id" SERIAL [pk, increment]
+  "code" varchar(50) [unique, not null]
+  "name_pl" varchar(100) [not null]
+  "name_en" varchar(100) [not null]
+  "description_pl" text
+  "description_en" text
+}
+
+Table "config"."anomaly_analysis_dictionary" {
+  "id" SERIAL [pk, increment]
+  "code" varchar(50) [unique, not null]
+  "name_pl" varchar(100) [not null]
+  "name_en" varchar(100) [not null]
+  "description_pl" text
+  "description_en" text
+}
+
+Table "config"."activated_batch_analyses" {
+  "id" SERIAL [pk, increment]
+  "criteria_id" integer [not null]
+  "analysis_id" integer [not null]
+  "param_value" decimal(12,2)
+
+  Indexes {
+    (criteria_id, analysis_id) [unique]
+  }
+}
+
+Table "config"."activated_anomaly_analyses" {
+  "id" SERIAL [pk, increment]
+  "criteria_id" integer [not null]
+  "analysis_id" integer [not null]
+  "param_value" decimal(12,2)
+
+  Indexes {
+    (criteria_id, analysis_id) [unique]
+  }
+}
+
+Table "config"."activated_notifications" {
+  "id" SERIAL [pk, increment]
+  "global_rule_id" integer [not null]
+  "analysis_id" integer [not null]
+  "param_value" decimal(12,2)
+
+  Indexes {
+    (global_rule_id, analysis_id) [unique]
+  }
+}
+
+Enum "orchestration"."error_source_enum" {
+  "ANALYSIS"
+  "DASHBOARD"
+  "MAINTENANCE"
+  "DATABASE"
+  "UNKNOWN"
+}
+
+Table "orchestration"."batches" {
+  "id" SERIAL [pk, increment]
+  "criteria_id" integer
+  "status" varchar(20) [not null, default: 'RUNNING']
+  "started_at" timestamp [not null, default: `now()`]
+  "finished_at" timestamp
+
+  Indexes {
+    criteria_id [name: "idx_batch_data_criteria_id"]
+  }
+}
+
+Table "orchestration"."system_errors" {
+  "id" SERIAL [pk, increment]
+  "error_source" orchestration.error_source_enum [not null]
+  "module_name" varchar(100)
+  "error_message" text [not null]
+  "stack_trace" text
+  "context_data" jsonb
+  "occurred_at" timestamp [not null, default: `now()`]
+  "is_resolved" boolean [not null, default: false]
+
+  Indexes {
+    occurred_at [name: "idx_errors_unresolved"]
+  }
+}
+
+Enum "analytics"."listing_price_type_enum" {
+  "RENT"
+  "SALE"
+}
+
+Enum "analytics"."detected_anomalies_scope_enum" {
+  "BATCH"
+  "GLOBAL"
+}
+
+Table "analytics"."execution_logs" {
+  "id" SERIAL [pk, increment]
+  "job_name" varchar(50) [not null]
+  "batch_id" integer [not null]
+  "clean_listing_id" integer
+  "batch_analysis_id" integer
+  "anomaly_analysis_id" integer
+  "status" varchar(20) [not null, default: 'RUNNING']
+  "error_message" text
+  "started_at" timestamp [not null, default: `now()`]
+  "finished_at" timestamp
+
+  Checks {
+    `(batch_analysis_id IS NOT NULL AND anomaly_analysis_id IS NULL AND clean_listing_id IS NULL)
+    OR
+    -- Case 2: Anomaly analysis
+    (anomaly_analysis_id IS NOT NULL AND clean_listing_id IS NOT NULL AND batch_analysis_id IS NULL)` [name: 'analysis_log_type_check']
+  }
+
+  Indexes {
+    batch_id [name: "idx_analytics_logs_batch"]
+    clean_listing_id [name: "idx_analytics_logs_listing"]
+  }
+}
+
+Table "analytics"."batch_metrics" {
+  "id" SERIAL [pk, increment]
+  "criteria_id" integer
+  "batch_id" integer
+  "analysis_id" integer [not null]
+  "metrics" jsonb [not null]
+  "calculated_at" timestamp [not null, default: `now()`]
+
+  Indexes {
+    batch_id [name: "idx_batch_metrics_batch"]
+    criteria_id [name: "idx_batch_metrics_criteria"]
+    analysis_id [name: "idx_batch_metrics_analysis"]
+    calculated_at [name: "idx_batch_metrics_date"]
+  }
+}
+
+Table "analytics"."listing_snapshots" {
+  "id" SERIAL [pk, increment]
+  "listing_url" text [not null]
+  "title" varchar(255)
+  "location_id" integer [not null]
+  "area_m2" decimal(10,2)
+  "price_type" analytics.listing_price_type_enum [not null]
+  "price_total" decimal(12,2)
+  "price_per_m2" decimal(12,2)
+  "price_rent" decimal(12,2)
+  "captured_at" timestamp [not null]
+
+  Checks {
+    `(price_type = 'SALE' AND (price_total IS NOT NULL OR price_per_m2 IS NOT NULL)) OR
+    (price_type = 'RENT' AND price_rent IS NOT NULL)` [name: 'price_presence_check']
+  }
+}
+
+Table "analytics"."detected_anomalies" {
+  "id" SERIAL [pk, increment]
+  "listing_id" integer
+  "listing_snapshot_id" integer [not null]
+  "scope" analytics.detected_anomalies_scope_enum [not null]
+  "criteria_id" integer
+  "global_rule_id" integer
+  "batch_id" integer
+  "analysis_id" integer [not null]
+  "trigger_details" jsonb [not null]
+  "is_read" boolean [not null, default: false]
+  "detected_at" timestamp [not null, default: `now()`]
+
+  Indexes {
+    listing_id [name: "idx_analytics_anomalies_listing"]
+    criteria_id [name: "idx_analytics_anomalies_criteria_id"]
+    global_rule_id [name: "idx_analytics_anomalies_global_rule_id"]
+    batch_id [name: "idx_analytics_anomalies_batch_id"]
+    analysis_id [name: "idx_analytics_anomalies_analysis_id"]
+    is_read [name: "idx_analytics_anomalies_unread"]
+  }
+}
+
+Table "raw"."execution_logs" {
+  "id" SERIAL [pk, increment]
+  "job_name" varchar(50) [not null]
+  "batch_id" integer [not null]
+  "status" varchar(20) [not null, default: 'RUNNING']
+  "error_message" text
+  "started_at" timestamp [not null, default: `now()`]
+  "finished_at" timestamp
+
+  Indexes {
+    batch_id [name: "idx_scraping_logs_batch_id"]
+  }
+}
+
+Table "raw"."listings" {
+  "id" SERIAL [pk, increment]
+  "criteria_id" integer
+  "batch_id" integer
+  "clean_listing_id" integer
+  "portal_name" varchar(50) [not null]
+  "external_id" varchar(100) [not null]
+  "listing_url" text [not null]
+  "raw_content" jsonb [not null]
+  "http_status" integer [not null]
+  "scraped_at" timestamp [not null, default: `now()`]
+
+  Indexes {
+    batch_id [name: "idx_raw_batch_id"]
+    scraped_at [name: "idx_raw_scraped_at"]
+  }
+}
+
+Table "clean"."execution_logs" {
+  "id" SERIAL [pk, increment]
+  "job_name" varchar(50) [not null]
+  "raw_listing_id" integer [not null]
+  "status" varchar(20) [not null, default: 'RUNNING']
+  "error_message" text
+  "started_at" timestamp [not null, default: `now()`]
+  "finished_at" timestamp
+
+  Indexes {
+    raw_listing_id [name: "idx_cleaning_logs_raw_id"]
+  }
+}
+
+Table "clean"."listings" {
+  "id" SERIAL [pk, increment]
+  "criteria_id" integer
+  "location_id" integer [not null]
+  "external_id" varchar(100) [unique, not null]
+  "portal_name" varchar(50) [not null]
+  "listing_url" text [not null]
+  "title" varchar(255) [not null]
+  "area_m2" decimal(10,2) [not null]
+  "rooms" integer
+  "property_type_id" integer [not null]
+  "market" config.market_type_enum [not null]
+  "transaction_type" config.transaction_type_enum [not null]
+  "first_seen_at" timestamp [not null, default: `now()`]
+  "last_seen_at" timestamp [not null, default: `now()`]
+  "is_active" boolean [not null, default: true]
+
+  Indexes {
+    criteria_id [name: "idx_clean_listings_criteria_id"]
+    external_id [name: "idx_clean_listings_external_id"]
+  }
+}
+
+Table "clean"."price_history" {
+  "id" SERIAL [pk, increment]
+  "listing_id" integer [not null]
+  "batch_id" integer
+  "price_sale_total" decimal(12,2)
+  "price_sale_per_m2" decimal(12,2)
+  "price_rent_monthly" decimal(12,2)
+  "seen_at" timestamp [not null, default: `now()`]
+
+  Indexes {
+    batch_id [name: "idx_price_history_batch_id"]
+    listing_id [name: "idx_price_history_listing_id"]
+  }
+}
+
+Ref:"config"."search_criteria"."id" < "config"."criteria_locations"."criteria_id" [update: cascade, delete: cascade]
+
+Ref:"config"."locations"."id" < "config"."criteria_locations"."location_id" [update: cascade, delete: restrict]
+
+Ref:"config"."global_notification_rules"."id" < "config"."global_rule_locations"."global_rule_id" [update: cascade, delete: cascade]
+
+Ref:"config"."locations"."id" < "config"."global_rule_locations"."location_id" [update: cascade, delete: restrict]
+
+Ref:"config"."search_criteria"."id" < "config"."criteria_property_types"."criteria_id" [update: cascade, delete: cascade]
+
+Ref:"config"."property_types"."id" < "config"."criteria_property_types"."property_type_id" [update: cascade, delete: restrict]
+
+Ref:"config"."search_criteria"."id" < "config"."criteria_rooms"."criteria_id" [update: cascade, delete: cascade]
+
+Ref:"config"."room_counts"."id" < "config"."criteria_rooms"."room_id" [update: cascade, delete: restrict]
+
+Ref:"config"."search_criteria"."id" < "config"."search_criteria_schedule"."criteria_id" [update: cascade, delete: cascade]
+
+Ref:"config"."global_notification_rules"."id" < "config"."global_rules_schedule"."global_rule_id" [update: cascade, delete: cascade]
+
+Ref:"config"."search_criteria"."id" < "config"."activated_batch_analyses"."criteria_id" [update: cascade, delete: cascade]
+
+Ref:"config"."batch_analysis_dictionary"."id" < "config"."activated_batch_analyses"."analysis_id" [update: cascade, delete: restrict]
+
+Ref:"config"."search_criteria"."id" < "config"."activated_anomaly_analyses"."criteria_id" [update: cascade, delete: cascade]
+
+Ref:"config"."anomaly_analysis_dictionary"."id" < "config"."activated_anomaly_analyses"."analysis_id" [update: cascade, delete: restrict]
+
+Ref:"config"."global_notification_rules"."id" < "config"."activated_notifications"."global_rule_id" [update: cascade, delete: cascade]
+
+Ref:"config"."anomaly_analysis_dictionary"."id" < "config"."activated_notifications"."analysis_id" [update: cascade, delete: restrict]
+
+Ref:"config"."search_criteria"."id" < "orchestration"."batches"."criteria_id" [update: cascade, delete: cascade]
+
+Ref:"orchestration"."batches"."id" < "raw"."execution_logs"."batch_id" [update: cascade, delete: cascade]
+
+Ref:"config"."search_criteria"."id" < "raw"."listings"."criteria_id" [update: cascade, delete: set null]
+
+Ref:"orchestration"."batches"."id" < "raw"."listings"."batch_id" [update: cascade, delete: set null]
+
+Ref:"raw"."listings"."id" < "clean"."execution_logs"."raw_listing_id" [update: cascade, delete: cascade]
+
+Ref:"config"."search_criteria"."id" < "clean"."listings"."criteria_id" [update: cascade, delete: set null]
+
+Ref:"config"."locations"."id" < "clean"."listings"."location_id" [update: cascade, delete: restrict]
+
+Ref:"config"."property_types"."id" < "clean"."listings"."property_type_id" [update: cascade, delete: restrict]
+
+Ref "fk_raw_listings_clean_id":"clean"."listings"."id" < "raw"."listings"."clean_listing_id" [update: cascade, delete: set null]
+
+Ref:"clean"."listings"."id" < "clean"."price_history"."listing_id" [update: cascade, delete: cascade]
+
+Ref:"orchestration"."batches"."id" < "clean"."price_history"."batch_id" [update: cascade, delete: set null]
+
+Ref:"orchestration"."batches"."id" < "analytics"."execution_logs"."batch_id" [update: cascade, delete: cascade]
+
+Ref:"clean"."listings"."id" < "analytics"."execution_logs"."clean_listing_id" [update: cascade, delete: cascade]
+
+Ref:"config"."batch_analysis_dictionary"."id" < "analytics"."execution_logs"."batch_analysis_id" [update: cascade, delete: cascade]
+
+Ref:"config"."anomaly_analysis_dictionary"."id" < "analytics"."execution_logs"."anomaly_analysis_id" [update: cascade, delete: cascade]
+
+Ref:"config"."search_criteria"."id" < "analytics"."batch_metrics"."criteria_id" [update: cascade, delete: set null]
+
+Ref:"orchestration"."batches"."id" < "analytics"."batch_metrics"."batch_id" [update: cascade, delete: set null]
+
+Ref:"config"."batch_analysis_dictionary"."id" < "analytics"."batch_metrics"."analysis_id" [update: cascade, delete: restrict]
+
+Ref:"config"."locations"."id" < "analytics"."listing_snapshots"."location_id" [update: cascade, delete: restrict]
+
+Ref:"clean"."listings"."id" < "analytics"."detected_anomalies"."listing_id" [update: cascade, delete: set null]
+
+Ref:"analytics"."listing_snapshots"."id" < "analytics"."detected_anomalies"."listing_snapshot_id" [update: cascade, delete: cascade]
+
+Ref:"config"."search_criteria"."id" < "analytics"."detected_anomalies"."criteria_id" [update: cascade, delete: set null]
+
+Ref:"config"."global_notification_rules"."id" < "analytics"."detected_anomalies"."global_rule_id" [update: cascade, delete: set null]
+
+Ref:"orchestration"."batches"."id" < "analytics"."detected_anomalies"."batch_id" [update: cascade, delete: set null]
+
+Ref:"config"."anomaly_analysis_dictionary"."id" < "analytics"."detected_anomalies"."analysis_id" [update: cascade, delete: restrict]
+
+Records config.property_types(type_name) {
+  'Apartment'
+  'House'
+}
+
+Records config.room_counts(room_label) {
+  '1'
+  '2'
+  '3'
+  '4'
+  '5'
+  '6'
+  '7'
+  '8'
+  '9'
+  '+10'
+}
+
+Records config.batch_analysis_dictionary(code, name_en, name_pl, description_en, description_pl) {
+  'DISTRIBUTION_CALC', 'Price Distribution', 'Rozkład cen w lokalizacji', 'Calculates price distribution (histogram) for current target.', 'Oblicza statystyki rozkładu cen (histogram).'
+  'PRICE_DYNAMICS', 'Price Dynamics Analysis', 'Analiza dynamiki cen', 'Calculates average/median price changes over time.', 'Oblicza zmiany średniej i mediany w czasie.'
+  'SUPPLY_VOLUME', 'Supply Volume Tracking', 'Monitorowanie wolumenu ofert', 'Tracks number of active listings over time.', 'Śledzi liczbę aktywnych ogłoszeń w czasie.'
+}
+
+Records config.anomaly_analysis_dictionary(code, name_en, name_pl, description_en, description_pl) {
+  'PRICE_DROP', 'Price Drop Detection', 'Wykrywanie obniżek cen', 'Detects when price decreases compared to previous snapshots.', 'Wykrywa spadki cen w stosunku do poprzednich zapisów.'
+  'BELOW_THRESHOLD', 'Price Below Threshold', 'Cena poniżej progu X', 'Finds offers where total price/rent is lower than X.', 'Znajduje oferty z ceną całkowitą/wynajmu niższą niż X.'
+  'BELOW_AVG_PERCENT', 'Price Below Average %', 'Cena X% poniżej średniej', 'Finds offers with price lower by X% than batch average.', 'Znajduje oferty z ceną niższą o X% od średniej.'
+}
+
+Records config.system_settings(setting_key, setting_value, is_enabled, description_pl, description_en) {
+  'raw_retention_days', 30, true, 'Przez ile dni przechowywać surowe pobrane dane', 'How many days to keep raw JSON data'
+  'clean_inactivity_days', 5, true, 'Ilość dni po której oferta jest uznawana za nieważną', 'Days after which listing is marked as inactive'
+}

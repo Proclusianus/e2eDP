@@ -1,0 +1,25 @@
+# Definiowanie obrazu dla środowiska wykonawczego z airflowem i pythonem
+FROM apache/airflow:2.7.1
+
+USER root
+# Zależności systemowe dla Playwright
+RUN apt-get update && apt-get install -y \
+    libnss3 \
+    libnspr4 \
+    libgbm1 \
+    libasound2 \
+    libatk-bridge2.0-0 \
+    libgtk-3-0 \
+    libx11-xcb1 \
+    libxcb-dri3-0 \
+    libxss1 \
+    libxtst6 \
+    libxshmfence1 \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Instalowanie bibliotek pythona
+USER airflow
+COPY requirements.txt /requirements.txt
+RUN pip install --no-cache-dir -r /requirements.txt
+RUN playwright install chromium

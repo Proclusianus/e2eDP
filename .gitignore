@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+ENV/
+
+# Secrets
+.env
+
+# Airflow & Logs
+logs/*
+!logs/.gitkeep
+plugins/*
+!plugins/.gitkeep
+
+# IDE - idea just in case
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Project Specific
+*.db
+*.csv
+*.json
+!config/*.json
+!config/*.yaml

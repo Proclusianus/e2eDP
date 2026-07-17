@@ -1,0 +1,48 @@
+services:
+  # Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: pricing_postgres
+    restart: always
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+    ports: # host_port:container_port
+      - "5432:5432"
+    volumes: #host_volume:container_volume
+      - postgres_data:/var/lib/postgresql/data
+      - ./sql:/docker-entrypoint-initdb.d
+    networks:
+      - pricing_network
+
+  # Airflow
+  airflow-standalone:
+    build: . # build image based on Dockerfile
+    container_name: pricing_airflow
+    depends_on: # postgres must be activated first
+      - postgres
+    environment:
+      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres/${POSTGRES_DB}
+      - AIRFLOW__CORE__LOAD_EXAMPLES=false
+      - AIRFLOW__CORE__CORE_AIRFLOW_HOME=/opt/airflow
+      - _AIRFLOW_WWW_USER_USERNAME=${AIRFLOW_ADMIN_USER}
+      - _AIRFLOW_WWW_USER_PASSWORD=${AIRFLOW_ADMIN_PASSWORD}
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./src:/opt/airflow/src
+      - ./logs:/opt/airflow/logs
+      - ./plugins:/opt/airflow/plugins
+    command: standalone # run airflow's all basic functions
+    networks:
+      - pricing_network
+
+volumes:
+  postgres_data:
+
+networks:
+  pricing_network:
+    driver: bridge
