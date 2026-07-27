@@ -9,7 +9,7 @@ services:
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
       - POSTGRES_DB=${POSTGRES_DB}
     ports: # host_port:container_port
-      - "5432:5432"
+      - "54321:5432"
     volumes: #host_volume:container_volume
       - postgres_data:/var/lib/postgresql/data
       - ./sql:/docker-entrypoint-initdb.d
@@ -18,7 +18,9 @@ services:
 
   # Airflow
   airflow-standalone:
-    build: . # build image based on Dockerfile
+    build:
+      context: .
+      dockerfile: Dockerfile.airflow
     container_name: pricing_airflow
     depends_on: # postgres must be activated first
       - postgres
@@ -29,6 +31,7 @@ services:
       - AIRFLOW__CORE__CORE_AIRFLOW_HOME=/opt/airflow
       - _AIRFLOW_WWW_USER_USERNAME=${AIRFLOW_ADMIN_USER}
       - _AIRFLOW_WWW_USER_PASSWORD=${AIRFLOW_ADMIN_PASSWORD}
+      - RUNNING_IN_DOCKER=true
     ports:
       - "8080:8080"
     volumes:
@@ -37,6 +40,30 @@ services:
       - ./logs:/opt/airflow/logs
       - ./plugins:/opt/airflow/plugins
     command: standalone # run airflow's all basic functions
+    networks:
+      - pricing_network
+
+  dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile.dashboard
+    container_name: pricing_dashboard
+    depends_on:
+      - postgres
+    ports:
+      - "8501:8501"
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+      - PYTHONPATH=/app/src
+      - RUNNING_IN_DOCKER=true
+    volumes:
+      - ./src:/app/src
+    command: >
+      python3 -m streamlit run /app/src/ui/app.py 
+      --server.port=8501 
+      --server.address=0.0.0.0 
     networks:
       - pricing_network
 

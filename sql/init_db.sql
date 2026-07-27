@@ -28,6 +28,9 @@ CREATE TABLE IF NOT EXISTS "config"."global_notification_rules" (
   "is_soft_deleted" boolean DEFAULT false NOT NULL,
   "created_at" timestamp DEFAULT (now()) NOT NULL
 );
+CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_active_target_name 
+ON "config"."global_notification_rules" ("rule_name") 
+WHERE (is_soft_deleted = false);
 
 CREATE TABLE IF NOT EXISTS "config"."search_criteria" (
   "id" SERIAL PRIMARY KEY,
@@ -46,6 +49,11 @@ CREATE TABLE IF NOT EXISTS "config"."search_criteria" (
   CONSTRAINT area_check CHECK (min_area >= 0 AND max_area >= min_area)
 );
 CREATE INDEX IF NOT EXISTS idx_config_criteria_active ON "config"."search_criteria"("is_active", "is_soft_deleted");
+CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_active_target_name 
+ON "config"."search_criteria" ("target_name") 
+WHERE (is_soft_deleted = false);
+-- ^^^ target_name must be unique (soft_deleted s_c names aren't taken into account)
+-- so you can have s_c named the same as soft deleted previous s_c
 
 -- N:M tables + join tables
 CREATE TABLE IF NOT EXISTS "config"."locations" (
@@ -106,7 +114,8 @@ CREATE TABLE IF NOT EXISTS "config"."batch_analysis_dictionary" (
   "name_pl" varchar(100) NOT NULL,
   "name_en" varchar(100) NOT NULL,
   "description_pl" text,
-  "description_en" text
+  "description_en" text,
+  "takes_parameter" BOOLEAN NOT NULL DEFAULT FALSE
 );
 
 CREATE TABLE IF NOT EXISTS "config"."anomaly_analysis_dictionary" (
@@ -115,7 +124,8 @@ CREATE TABLE IF NOT EXISTS "config"."anomaly_analysis_dictionary" (
   "name_pl" varchar(100) NOT NULL,
   "name_en" varchar(100) NOT NULL,
   "description_pl" text,
-  "description_en" text
+  "description_en" text,
+  "takes_parameter" BOOLEAN NOT NULL DEFAULT FALSE
 );
 
 -- data batch analysis (per data target config)
