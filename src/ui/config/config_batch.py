@@ -245,7 +245,7 @@ def go_to_list():
 
 #############
 # CALLBACKS #
-#############         
+#############
 def soft_delete_criteria_callback(criteria_id, target_name):
     if db.soft_delete_criteria(criteria_id):
         remove_criteria_from_state(criteria_id)
@@ -391,11 +391,11 @@ elif st.session_state.view_mode == 'form':
     # Get dictionary data from DB
     transaction_types = db.get_all_transaction_types()
     market_types = db.get_all_market_types()
-    existing_locations = db.get_all_locations()
+    existing_locations = db.get_all_locations_old()
     available_property_types = db.get_all_property_types()
     available_rooms = db.get_all_room_counts()
     batch_analyses = db.get_batch_analysis_definitions()
-    anomaly_analyses = db.get_anomaly_analysis_definitions()
+    anomaly_analyses = db.get_anomaly_analysis_definitions_old()
 
     # If in edit mode - SELECT currently edited data
     form_defaults = {
@@ -554,7 +554,7 @@ elif st.session_state.view_mode == 'form':
                         db.soft_delete_criteria(edit_id)
                         n_id = save_search_criteria(**final_data, is_new=False)
                         if n_id:
-                            st.session_state.toast_msg = f"Parameters changed successfuly"
+                            st.session_state.toast_msg = f"Parameters changed successfully"
                             remove_criteria_from_state(edit_id)
                             update_single_row_in_state(n_id)
                             go_to_list()
@@ -571,7 +571,7 @@ elif st.session_state.view_mode == 'form':
                                 batch_an=selected_batch_an,
                                 anomaly_an=selected_anomaly_an
                             )
-                            st.session_state.toast_msg = f"Parameters changed successfuly"
+                            st.session_state.toast_msg = f"Parameters changed successfully"
                             update_single_row_in_state(edit_id)
                             
                             go_to_list()
