@@ -1,48 +1,18 @@
-import os
-import pandas as pd
-import traceback
-import json
 from dataclasses import dataclass, field
 import datetime
+import os
+import traceback
+import json
 
-
+import pandas as pd
 from sqlalchemy import create_engine, text
 from dotenv import load_dotenv
 
 
-@dataclass(frozen=True)
-class Location:
-    location_id: int
-    city_name: str
+from database.models import Location, GlobalNotificationRule, AnomalyAnalysis, ActivatedAnalysis, SystemSetting, SystemSettingChange
+from database.settings_defaults import DEFAULT_SYSTEM_SETTINGS
 
-@dataclass(frozen=True)
-class AnomalyAnalysis:
-    id: int
-    code: str
-    name_pl: str
-    name_en: str
-    description_pl: str | None
-    description_en: str | None
-    takes_parameter: bool
-
-@dataclass(frozen=True)
-class ActivatedAnalysis:
-    analysis_id: int
-    param_value: float | None
-
-@dataclass(frozen=True)
-class GlobalNotificationRule:
-    id: int
-    rule_name: str
-    description: str | None
-    transaction_type: str
-    is_searching_all_cities: bool
-    is_active: bool
-    cities: list[str] = field(default_factory=list)
-    analyses: list[ActivatedAnalysis] = field(default_factory=list)
-    execution_hours: list[datetime.time] = field(default_factory=list)
-
-# Ładujemy zmienne z pliku .env
+# Load credentials from env
 load_dotenv()
 
 class DBManager:
@@ -747,6 +717,112 @@ class DBManager:
                 context_data={"gnr_name": name, "ignore_sd": ignore_soft_deleted}
             )
             return None
+
+    ###########################
+    # SYSTEM SETTINGS METHODS #
+    ###########################
+    def get_all_system_settings(self) -> list[SystemSetting]:
+        """
+            Returns all system settings. If none are in the DB, or on error, returns an empty list.  
+            Note that there should ALWAYS be >=1 setting in the DB.
+        """
+        query = text("""SELECT setting_key, setting_value, is_enabled, value_type, name_pl, name_en, description_pl, description_en FROM config.system_settings ORDER BY name_en""")
+        try:
+            sys_settings = []
+            with self.engine.connect() as conn:
+                result = conn.execute(query)
+                for row in result:
+                    r = row._mapping
+                    sys_settings.append(SystemSetting(
+                        setting_key=r['setting_key'],
+                        setting_value=r['setting_value'],
+                        is_enabled=r['is_enabled'],
+                        value_type=r['value_type'],
+                        name_pl=r['name_pl'],
+                        name_en=r['name_en'],
+                        description_pl=r['description_pl'],
+                        description_en=r['description_en']
+                    ))
+                return sys_settings
+        except Exception as e:
+            self.log_system_error(
+                error_source='DATABASE', 
+                module_name='get_all_system_settings', 
+                error_message=str(e),
+                stack_trace=traceback.format_exc()
+            )
+            return []
+
+    def modify_system_setting(self, setting_key: str, setting_value: int | None = None, is_enabled: bool | None = None, conn = None) -> bool:
+        """ 
+            Modifies a system setting given by setting_key.  
+            If modification successful returns True, if not False.  
+            If wrong setting parameters are passed, throws a ValueError Exception.
+        """
+        def _execute_modify_logic(c):
+            meta_res = c.execute(text("""SELECT value_type FROM config.system_settings WHERE setting_key = :sk"""), {"sk": setting_key}).fetchone()
+            if not meta_res:
+                raise ValueError(f"Setting key '{setting_key}' not found.")
+
+            v_type = meta_res[0].upper() # NUMERIC, BOOLEAN, BOTH
+            if v_type == 'NUMERIC' and setting_value is None:
+                raise ValueError(f"Setting '{setting_key}' is numeric and requires a value.")
+            if v_type == 'BOOLEAN' and is_enabled is None:
+                raise ValueError(f"Setting '{setting_key}' is boolean and requires enabled/disabled status.")
+            if v_type == 'BOTH' and (setting_value is None or is_enabled is None):
+                raise ValueError(f"Setting '{setting_key}' requires both a value and a status.")
+
+            c.execute(text("""
+                UPDATE config.system_settings 
+                SET setting_value = COALESCE(:sv, setting_value), 
+                    is_enabled = COALESCE(:en, is_enabled) 
+                WHERE setting_key = :sk
+            """), {"sv": setting_value, "en": is_enabled, "sk": setting_key})
+
+        if conn is None:
+            try:
+                with self.engine.begin() as new_conn:
+                    _execute_modify_logic(new_conn)
+                return True
+            except Exception as e:
+                self.log_system_error(
+                    error_source='DATABASE', 
+                    module_name='modify_system_setting', 
+                    error_message=str(e),
+                    stack_trace=traceback.format_exc(),
+                    context_data={"setting_key": setting_key, "setting_value": setting_value, "is_enabled": is_enabled}
+                )
+                return False
+        else:
+            _execute_modify_logic(conn)
+            return True
+
+    def modify_system_settings(self, changed_settings: list[SystemSettingChange]) -> bool:
+        """
+            Modifies system settings given by changed_settings
+            Returns True on success, or False if the operation failed.
+        """
+        try:
+            with self.engine.begin() as conn:
+                for s in changed_settings:
+                    self.modify_system_setting(setting_key=s.setting_key, setting_value=s.setting_value, is_enabled=s.is_enabled, conn=conn)
+                return True
+        except Exception as e:
+            self.log_system_error(
+                error_source='DATABASE',
+                module_name='modify_system_settings',
+                error_message=str(e),
+                stack_trace=traceback.format_exc(),
+                context_data={"changed_settings": [vars(s) for s in changed_settings]}
+            )
+            return False
+
+    def restore_default_system_settings(self) -> bool:
+        """
+            Restores default settings values defined in settings_defaults.py.  
+            Returns True on success, or False if the operation failed.
+        """
+        return self.modify_system_settings(DEFAULT_SYSTEM_SETTINGS)
 
     ##################################
     # EXECUTION & ERROR LOGS METHODS #

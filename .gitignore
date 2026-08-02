@@ -25,5 +25,6 @@ Thumbs.db
 *.db
 *.csv
 *.json
+*.session.sql
 !config/*.json
 !config/*.yaml

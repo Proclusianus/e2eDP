@@ -8,7 +8,7 @@ import pandas as pd
 
 
 from database.db_manager import DBManager
-from database.db_manager import AnomalyAnalysis, Location, ActivatedAnalysis, GlobalNotificationRule
+from database.models import AnomalyAnalysis, Location, ActivatedAnalysis, GlobalNotificationRule
 
 ###########
 # STRINGS #
@@ -201,7 +201,7 @@ def manual_refresh_callback():
 ###########################
 # Cached Data & Fragments #
 ###########################
-#@st.cache_resource
+@st.cache_resource
 def get_db():
     return DBManager()
 db = get_db()
@@ -297,8 +297,8 @@ if st.session_state.gnr_view_mode == 'list':
     if err:
         st.toast(err, icon="❌", duration=8)
 
-    st.divider()
     st.header("🌍 Current Global Notification Rules")
+    st.divider()
     st.markdown("This menu allows you to view, edit and create your global notification rules.")
     st.markdown("Global notification rules are configuration objects that allow you to monitor all gathered data and find anomalies which fulfill selected conditions")
     with st.expander("See Global Notification Rules Parameters..."):

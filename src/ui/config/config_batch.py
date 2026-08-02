@@ -351,8 +351,8 @@ if st.session_state.view_mode == 'list':
     if err:
         st.toast(err, icon="❌", duration=8)
 
-    st.divider()
     st.header("🎯 Current Search Criteria")
+    st.divider()
     st.markdown("This menu allows you to view, edit and create your search criteria.")
     st.markdown("Search criteria are configuration objects that dictate exactly what data is harvested from real estate portals and how it should be processed.")
     with st.expander("See Search Criteria Parameters..."):

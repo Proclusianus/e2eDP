@@ -19,4 +19,12 @@ pg = st.navigation(
         "Maintenance": [sys_settings, sys_logs, sys_errors],
     }, 
 )
+
+if "last_page" not in st.session_state:
+    st.session_state.last_page = None
+
+if st.session_state.last_page != pg.title:
+    st.session_state.pop('sys_settings_initialized', None)
+    st.session_state.last_page = pg.title
+
 pg.run()

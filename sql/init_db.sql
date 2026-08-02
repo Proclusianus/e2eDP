@@ -2,21 +2,25 @@ BEGIN; -- just to make sure the whole init.sql gets executed
 
 CREATE SCHEMA IF NOT EXISTS "config";
 
+-- Enums
+DO $$ BEGIN
+  CREATE TYPE "config"."transaction_type_enum" AS ENUM ('sale', 'rent');
+  CREATE TYPE "config"."market_type_enum" AS ENUM ('primary', 'secondary', 'both');
+  CREATE TYPE "config"."system_setting_type_enum" AS ENUM('numeric', 'boolean', 'both');
+  EXCEPTION WHEN duplicate_object THEN null; 
+END $$;
+
 CREATE TABLE IF NOT EXISTS "config"."system_settings" (
   "id" SERIAL PRIMARY KEY,
   "setting_key" varchar(50) UNIQUE NOT NULL,
   "setting_value" integer NOT NULL,
   "is_enabled" boolean DEFAULT true NOT NULL,
+  "value_type" config.system_setting_type_enum NOT NULL,
+  "name_pl" varchar(100) NOT NULL,
+  "name_en" varchar(100) NOT NULL,
   "description_pl" text,
   "description_en" text
 );
-
--- Enums
-DO $$ BEGIN
-  CREATE TYPE "config"."transaction_type_enum" AS ENUM ('sale', 'rent');
-  CREATE TYPE "config"."market_type_enum" AS ENUM ('primary', 'secondary', 'both');
-  EXCEPTION WHEN duplicate_object THEN null; 
-END $$;
 
 CREATE TABLE IF NOT EXISTS "config"."global_notification_rules" (
   "id" SERIAL PRIMARY KEY,
