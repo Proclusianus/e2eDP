@@ -179,9 +179,24 @@ INSERT INTO "config"."anomaly_analysis_dictionary"
 ('BELOW_AVG_PERCENT', 'Price Below Average %', 'Cena X% poniżej średniej', 
  'Finds offers with price lower by X% than batch average.', 'Znajduje oferty z ceną niższą o X% od średniej.')
 ON CONFLICT (code) DO NOTHING;
-INSERT INTO "config"."system_settings" ("setting_key", "setting_value", "is_enabled", "description_pl", "description_en") VALUES 
-('raw_retention_days', 30, true, 'Przez ile dni przechowywać surowe pobrane dane', 'How many days to keep raw JSON data'),
-('clean_inactivity_days', 5, true, 'Ilość dni po której oferta jest uznawana za nieważną', 'Days after which listing is marked as inactive')
+INSERT INTO "config"."system_settings" 
+("setting_key", "setting_value", "is_enabled", "value_type", "name_pl", "name_en", "description_pl", "description_en") 
+VALUES 
+(
+    'raw_retention_days', 30, true, 'both', 'Retencja danych RAW', 'Raw data retention', 
+    'Liczba dni przechowywania surowych danych JSON. Jeśli wyłączone, automatyczne usuwanie starych danych nie będzie wykonywane.', 
+    'Number of days to keep raw JSON data. If disabled, automatic cleanup is skipped.'
+),
+(
+    'clean_inactivity_days', 5, true, 'both', 'Dni braku aktywności', 'Inactivity days', 
+    'Liczba dni, po których oferta nieobecna w pobieraniu zostanie uznana za nieaktywną. Jeśli wyłączone, proces deaktywacji nie będzie zachodził.', 
+    'Days after which a listing is marked as inactive if not seen in recent scrapes. If disabled, deactivation process is skipped.'
+),
+(
+    'execution_logs_retention_days', 14, true, 'both', 'Retencja logów wykonania', 'Execution logs retention', 
+    'Liczba dni, przez które przechowywane są logi wykonania skryptów. Jeśli wyłączone, logi nie będą usuwane.', 
+    'Number of days to keep script execution logs. If disabled, logs are not automatically deleted.'
+)
 ON CONFLICT (setting_key) DO NOTHING;
 
 -- End of config schema
@@ -315,6 +330,7 @@ CREATE TABLE IF NOT EXISTS "analytics"."execution_logs" (
   "clean_listing_id" integer REFERENCES "clean"."listings"("id") ON DELETE CASCADE ON UPDATE CASCADE,
   "batch_analysis_id" integer REFERENCES "config"."batch_analysis_dictionary"("id") ON DELETE CASCADE ON UPDATE CASCADE,
   "anomaly_analysis_id" integer REFERENCES "config"."anomaly_analysis_dictionary"("id") ON DELETE CASCADE ON UPDATE CASCADE,
+  "global_rule_id" integer REFERENCES "config"."global_notification_rules"("id") ON DELETE CASCADE ON UPDATE CASCADE,
   "status" varchar(20) NOT NULL DEFAULT 'RUNNING',
   "error_message" text,
   "started_at" timestamp NOT NULL DEFAULT now(),
@@ -329,6 +345,7 @@ CREATE TABLE IF NOT EXISTS "analytics"."execution_logs" (
 );
 CREATE INDEX IF NOT EXISTS idx_analytics_logs_batch ON "analytics"."execution_logs"("batch_id");
 CREATE INDEX IF NOT EXISTS idx_analytics_logs_listing ON "analytics"."execution_logs"("clean_listing_id");
+CREATE INDEX IF NOT EXISTS idx_analytics_logs_gnr ON "analytics"."execution_logs"("global_rule_id");
 
 DO $$ BEGIN
   CREATE TYPE "analytics"."listing_price_type_enum" AS ENUM ('RENT', 'SALE');

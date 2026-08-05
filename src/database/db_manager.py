@@ -4,12 +4,14 @@ import os
 import traceback
 import json
 
+
 import pandas as pd
 from sqlalchemy import create_engine, text
 from dotenv import load_dotenv
 
 
-from database.models import Location, GlobalNotificationRule, AnomalyAnalysis, ActivatedAnalysis, SystemSetting, SystemSettingChange
+import database.models as dbmodels
+import database.exceptions as dbexcepts
 from database.settings_defaults import DEFAULT_SYSTEM_SETTINGS
 
 # Load credentials from env
@@ -29,6 +31,32 @@ class DBManager:
 
         self.conn_url = f"postgresql://{user}:{password}@{host}:{port}/{db}"
         self.engine = create_engine(self.conn_url)
+
+    ##########
+    # COMMON #
+    ##########
+    def _get_active_count(self, table_name: str, only_active: bool) -> int:
+        """
+            Counts records in a sc/gnr tables.  
+            Returns -1 if failed.
+        """
+        query = text(f"""
+            SELECT COUNT(*) 
+            FROM config.{table_name} 
+            WHERE (is_active = true OR :oa = false)
+        """)
+        try:
+            with self.engine.connect() as conn:
+                result = conn.execute(query, {"oa": only_active})
+                return result.scalar()
+        except Exception as e:
+            self.log_system_error(
+                error_source='DATABASE',
+                module_name=f'get_count_{table_name}',
+                error_message=str(e),
+                stack_trace=traceback.format_exc()
+            )
+            return -1
 
     ################
     # DICTIONARIES #
@@ -50,7 +78,7 @@ class DBManager:
         )
         return res.fetchone()[0]
 
-    def get_all_locations(self) -> list[Location]:
+    def get_all_locations(self) -> list[dbmodels.Location]:
         """Returns a list of Locations. Returns an empty list if none exist or on error."""
         query_str = "SELECT id, INITCAP(city_name) as city_name FROM config.locations ORDER BY city_name"
         try:
@@ -59,7 +87,7 @@ class DBManager:
                 result = conn.execute(text(query_str))
                 for row in result:
                     r = row._mapping
-                    locations.append(Location(
+                    locations.append(dbmodels.Location(
                         location_id=r['id'],
                         city_name=r['city_name']
                     ))
@@ -102,7 +130,7 @@ class DBManager:
         """Returns a list of enum values labels (strings). Returns empty list if no labels were found or on error."""
         return self._get_enum_labels('market_type_enum')
 
-    def get_anomaly_analysis_definitions(self) -> list[AnomalyAnalysis]:
+    def get_anomaly_analysis_definitions(self) -> list[dbmodels.AnomalyAnalysis]:
         """Returns a list of AnomalyAnalysis. Returns an empty list if none exist or on error."""
         query_str = "SELECT id, code, name_en, description_en, name_pl, description_pl, takes_parameter FROM config.anomaly_analysis_dictionary"
         try:
@@ -111,7 +139,7 @@ class DBManager:
                 result = conn.execute(text(query_str))
                 for row in result:
                     r = row._mapping
-                    anomaly_analyses.append(AnomalyAnalysis(
+                    anomaly_analyses.append(dbmodels.AnomalyAnalysis(
                         id=r['id'],
                         code=r['code'],
                         name_pl=r['name_pl'],
@@ -125,6 +153,34 @@ class DBManager:
             self.log_system_error(
                 error_source='DATABASE',
                 module_name='get_anomaly_analysis_definitions',
+                error_message=str(e),
+                stack_trace=traceback.format_exc()
+            )
+            return []
+
+    def get_batch_analysis_definitions(self) -> list[dbmodels.BatchAnalysis]:
+        """Returns a list of BatchAnalysis. Returns an empty list if none exist or on error."""
+        query_str = "SELECT id, code, name_en, description_en, name_pl, description_pl, takes_parameter FROM config.batch_analysis_dictionary"
+        try:
+            batch_analyses = []
+            with self.engine.connect() as conn:
+                result = conn.execute(text(query_str))
+                for row in result:
+                    r = row._mapping
+                    batch_analyses.append(dbmodels.BatchAnalysis(
+                        id=r['id'],
+                        code=r['code'],
+                        name_pl=r['name_pl'],
+                        name_en=r['name_en'],
+                        description_pl=r['description_pl'],
+                        description_en=r['description_en'],
+                        takes_parameter=r['takes_parameter']
+                    ))
+                return batch_analyses
+        except Exception as e:
+            self.log_system_error(
+                error_source='DATABASE',
+                module_name='get_batch_analysis_definitions',
                 error_message=str(e),
                 stack_trace=traceback.format_exc()
             )
@@ -151,7 +207,7 @@ class DBManager:
         query = "SELECT id, room_label FROM config.room_counts ORDER BY id"
         return pd.read_sql(query, self.engine).to_dict('records')
 
-    def get_batch_analysis_definitions(self):
+    def get_batch_analysis_definitions_old(self):
         """Returns a list of record dictionaries (entire record)"""
         query = "SELECT id, code, name_en, description_en, name_pl, description_pl, takes_parameter FROM config.batch_analysis_dictionary"
         return pd.read_sql(query, self.engine).to_dict('records')
@@ -415,10 +471,47 @@ class DBManager:
                     VALUES (:id, :aid, :pv)
                 """), {"id": criteria_id, "aid": aa['id'], "pv": aa['value']})
 
+    def get_all_sc_names(self, select_inactive: bool) -> list[str]:
+        """
+            select_inactive - if true include inactive search targets in the resulting list.  
+            Raises a exceptions.DatabaseError exception when the operation fails.  
+            Returns an empty list if no names have been obtained.
+        """
+        query = text("""
+            SELECT DISTINCT
+                target_name || CASE 
+                    WHEN is_soft_deleted THEN ' [ARCHIVED]' 
+                    WHEN NOT is_active THEN ' [PAUSED]' 
+                    ELSE '' 
+                END as display_name
+            FROM config.search_criteria 
+            WHERE (is_active = true OR :inc_inact = true)
+            ORDER BY display_name ASC
+        """)
+        try:
+            with self.engine.connect() as conn:
+                result = conn.execute(query, {"inc_inact": select_inactive})
+                return [row[0] for row in result]
+        except Exception as e:
+            self.log_system_error(
+                error_source='DATABASE',
+                module_name='get_all_sc_names',
+                error_message=str(e),
+                stack_trace=traceback.format_exc()
+            )
+            raise dbexcepts.DatabaseError(f"Failed to fetch SC names from database: {str(e)}") from e
+
+    def get_search_criteria_count(self, only_active: bool = True) -> int:
+        """
+            Counts records in the SC table.  
+            Returns -1 if failed.
+        """
+        return self._get_active_count("search_criteria", only_active)
+
     ########################
     # GLOBAL NOTIFICATIONS #
     ########################
-    def get_current_global_notifs(self) -> list[GlobalNotificationRule]:
+    def get_current_global_notifs(self) -> list[dbmodels.GlobalNotificationRule]:
         """
             Returns all non-soft_deleted global notification rules mapped to GlobalNotificationRule dataclass.  
             If there aren't any or an error occurs returns an empty list.
@@ -451,7 +544,7 @@ class DBManager:
                     r = row._mapping
                     # Map data to ActivatedAnalysis
                     analyses_objs = [
-                        ActivatedAnalysis(analysis_id=a['id'], param_value=float(a['val']) if a['val'] is not None else None)
+                        dbmodels.ActivatedAnalysis(analysis_id=a['id'], param_value=float(a['val']) if a['val'] is not None else None)
                         for a in r['analyses_json']
                     ]
                     # Map execution_hours to datetime.time
@@ -460,7 +553,7 @@ class DBManager:
                         for h in r['hours_json']
                     ]
                     # Create data struct
-                    rules.append(GlobalNotificationRule(
+                    rules.append(dbmodels.GlobalNotificationRule(
                         id=r['id'],
                         rule_name=r['rule_name'],
                         description=r['description'],
@@ -481,7 +574,7 @@ class DBManager:
             )
             return []
 
-    def get_global_notification_rule(self, gnr_id: int) -> GlobalNotificationRule | None:
+    def get_global_notification_rule(self, gnr_id: int) -> dbmodels.GlobalNotificationRule | None:
         """
             Retrieves the complete configuration for a specific global notification rule, 
             including all nested relational data.  
@@ -513,14 +606,14 @@ class DBManager:
                     return None
                 r = result._mapping
                 analyses_objs = [
-                    ActivatedAnalysis(analysis_id=a['id'], param_value=float(a['val']) if a['val'] is not None else None)
+                    dbmodels.ActivatedAnalysis(analysis_id=a['id'], param_value=float(a['val']) if a['val'] is not None else None)
                     for a in r['analyses_json']
                 ]
                 hours_objs = [
                     datetime.datetime.strptime(h, "%H:%M").time()
                     for h in r['hours_json']
                 ]
-                return GlobalNotificationRule(
+                return dbmodels.GlobalNotificationRule(
                     id=r['id'],
                     rule_name=r['rule_name'],
                     description=r['description'],
@@ -541,7 +634,7 @@ class DBManager:
             )
             return None
 
-    def save_new_global_notification_rule(self, gnr: GlobalNotificationRule, conn=None) -> int | None:
+    def save_new_global_notification_rule(self, gnr: dbmodels.GlobalNotificationRule, conn=None) -> int | None:
         """
             Saves a new global_notification_rule.  
             Returns id of created gnr, or None if the creation failed.
@@ -617,7 +710,7 @@ class DBManager:
             conn.execute(query_del_schedule, {"id": gnr_id})
             return True
 
-    def replace_global_rule(self, old_id: int, new_gnr: GlobalNotificationRule) -> int | None:
+    def replace_global_rule(self, old_id: int, new_gnr: dbmodels.GlobalNotificationRule) -> int | None:
         """
             Soft deletes the old version of the rule, and adds the new one.  
             Returns id of created gnr, or None if the operation failed.
@@ -659,7 +752,7 @@ class DBManager:
             return False
 
     def update_global_notification_nonessential_data(self, gnr_id: int, name: str, desc: str | None, hours: list[datetime.time], 
-                                                     analyses: list[ActivatedAnalysis]) -> bool:
+                                                     analyses: list[dbmodels.ActivatedAnalysis]) -> bool:
         """
             Deletes & Re-inserts non essential data for a GNR.  
             Returns True if operation succeeded or False if failed.
@@ -718,10 +811,46 @@ class DBManager:
             )
             return None
 
+    def get_all_gnr_names(self, select_inactive: bool) -> list[str]:
+        """
+            select_inactive - if true include inactive search targets in the resulting list.  
+            Returns an empty list if failed or if there are no such names.
+        """
+        query = text("""
+            SELECT DISTINCT
+                rule_name || CASE 
+                    WHEN is_soft_deleted THEN ' [ARCHIVED]' 
+                    WHEN NOT is_active THEN ' [PAUSED]' 
+                    ELSE '' 
+                END as display_name
+            FROM config.global_notification_rules 
+            WHERE (is_active = true OR :inc_inact = true)
+            ORDER BY display_name ASC
+        """)
+        try:
+            with self.engine.connect() as conn:
+                result = conn.execute(query, {"inc_inact": select_inactive})
+                return [row[0] for row in result]
+        except Exception as e:
+            self.log_system_error(
+                error_source='DATABASE',
+                module_name='get_all_gnr_names',
+                error_message=str(e),
+                stack_trace=traceback.format_exc()
+            )
+            raise dbexcepts.DatabaseError(f"Failed to fetch GNR names from database: {str(e)}") from e
+
+    def get_global_notification_rules_count(self, only_active: bool = True) -> int:
+        """
+            Counts records in the GNR table.  
+            Returns -1 if failed.
+        """
+        return self._get_active_count("global_notification_rules", only_active)
+
     ###########################
     # SYSTEM SETTINGS METHODS #
     ###########################
-    def get_all_system_settings(self) -> list[SystemSetting]:
+    def get_all_system_settings(self) -> list[dbmodels.SystemSetting]:
         """
             Returns all system settings. If none are in the DB, or on error, returns an empty list.  
             Note that there should ALWAYS be >=1 setting in the DB.
@@ -733,7 +862,7 @@ class DBManager:
                 result = conn.execute(query)
                 for row in result:
                     r = row._mapping
-                    sys_settings.append(SystemSetting(
+                    sys_settings.append(dbmodels.SystemSetting(
                         setting_key=r['setting_key'],
                         setting_value=r['setting_value'],
                         is_enabled=r['is_enabled'],
@@ -797,7 +926,7 @@ class DBManager:
             _execute_modify_logic(conn)
             return True
 
-    def modify_system_settings(self, changed_settings: list[SystemSettingChange]) -> bool:
+    def modify_system_settings(self, changed_settings: list[dbmodels.SystemSettingChange]) -> bool:
         """
             Modifies system settings given by changed_settings
             Returns True on success, or False if the operation failed.
@@ -848,6 +977,173 @@ class DBManager:
                 })
         except Exception as e:
             print(f"CRITICAL ERROR: Could not log to DB: {e}")
+
+
+    def _build_log_query(self, schema: str, log_status: dbmodels.LogStatus, 
+                         target_names: list[str], unit: dbmodels.TimeUnit, 
+                         amount: int, select_inactive: bool) -> str:
+        ### GETTING ALL TABLE DATA ###
+        # Common columns in all execution log tables
+        base_cols = "l.id, '{layer}', l.job_name, l.status, l.error_message, l.started_at, l.finished_at"
+        sc_display_name = """
+            sc.target_name || CASE 
+                WHEN sc.is_soft_deleted THEN ' [ARCHIVED]' 
+                WHEN NOT sc.is_active THEN ' [PAUSED]' 
+                ELSE '' 
+            END
+        """
+        gnr_display_name = """
+            gnr.rule_name || CASE 
+                WHEN gnr.is_soft_deleted THEN ' [ARCHIVED]' 
+                WHEN NOT gnr.is_active THEN ' [PAUSED]' 
+                ELSE '' 
+            END
+        """
+        
+        if schema == 'raw':
+            cols = f"{base_cols.format(layer='RAW')}, l.batch_id, NULL::INTEGER, NULL::INTEGER, NULL::INTEGER, NULL::INTEGER, NULL::INTEGER, {sc_display_name}"
+            joins = """
+                JOIN orchestration.batches b ON l.batch_id = b.id
+                JOIN config.search_criteria sc ON b.criteria_id = sc.id
+            """
+        elif schema == 'clean':
+            # SC NAME PATH: Clean Log -> Raw Listing -> Batch -> Criteria
+            cols = f"{base_cols.format(layer='CLEAN')}, rl.batch_id, l.raw_listing_id, NULL::INTEGER, NULL::INTEGER, NULL::INTEGER, NULL::INTEGER, {sc_display_name}"
+            joins = """
+                JOIN raw.listings rl ON l.raw_listing_id = rl.id
+                JOIN orchestration.batches b ON rl.batch_id = b.id
+                JOIN config.search_criteria sc ON b.criteria_id = sc.id
+            """
+        elif schema == 'analytics':
+            # SC NAME PATH: Analytics Log -> Batch -> Criteria
+            # GNR NAME PATH: Analytics Log -> GNR
+            cols = f"""{base_cols.format(layer='ANALYTICS')}, l.batch_id, NULL::INTEGER, l.clean_listing_id, 
+                    l.batch_analysis_id, l.anomaly_analysis_id, l.global_rule_id,
+                    COALESCE({sc_display_name}, {gnr_display_name})"""
+            joins = """
+                LEFT JOIN orchestration.batches b ON l.batch_id = b.id
+                LEFT JOIN config.search_criteria sc ON b.criteria_id = sc.id
+                LEFT JOIN config.global_notification_rules gnr ON l.global_rule_id = gnr.id
+            """
+
+        query = f"SELECT {cols} FROM {schema}.execution_logs l {joins} WHERE 1=1"
+
+        ### FILTERS ###
+        if log_status != dbmodels.LogStatus.ANY:
+            query += f" AND l.status = '{log_status.value}'"
+        if not select_inactive:
+            if schema == 'analytics':
+                query += " AND (sc.is_active = true OR gnr.is_active = true)"
+            else:
+                query += " AND sc.is_active = true"
+        if target_names:
+            names = [f"'{t}'" for t in target_names]
+            target_col = "sc.target_name" if schema != 'analytics' else "COALESCE(sc.target_name, gnr.rule_name)"
+            query += f" AND {target_col} IN ({', '.join(names)})"
+        if unit != dbmodels.TimeUnit.ALL_TIME:
+            pg_unit = unit.value.lower() # 'minute', 'hour', 'day'
+            query += f" AND l.started_at >= NOW() - INTERVAL '{amount} {pg_unit}'"
+
+        return query
+
+    def _map_row_to_exec_log(self, row) -> dbmodels.RawExecLog | dbmodels.CleanExecLog | dbmodels.AnalyticsExecLog:
+        """Builds DTO objects out of raw DB data."""
+        r = row._mapping
+        layer = r['layer']
+        common = {
+            "id": r['id'],
+            "target_display_name": r['target_display_name'],
+            "job_name": r['job_name'],
+            "status": r['status'],
+            "error_message": r['error_message'],
+            "started_at": r['started_at'],
+            "finished_at": r['finished_at']
+        }
+        if layer == 'RAW':
+            return dbmodels.RawExecLog(**common, batch_id=r['batch_id'])
+        elif layer == 'CLEAN':
+            return dbmodels.CleanExecLog(**common, raw_listing_id=r['raw_listing_id'])
+        elif layer == 'ANALYTICS':
+            return dbmodels.AnalyticsExecLog(
+                **common,
+                batch_id=r['batch_id'],
+                clean_listing_id=r['clean_listing_id'],
+                batch_analysis_id=r['batch_analysis_id'],
+                anomaly_analysis_id=r['anomaly_analysis_id'],
+                global_rule_id=r['global_rule_id']
+            )
+
+    def get_all_execution_logs(self, log_status: dbmodels.LogStatus, target_names: list[str], limit_records: int, pg_number: int,
+                               unit_of_time: dbmodels.TimeUnit, time_amount: int, sort_by: str, select_inactive: bool, 
+                               get_raw: bool = True, get_clean: bool = True, get_analytics: bool = True
+                               ) -> tuple[int, list[dbmodels.RawExecLog | dbmodels.CleanExecLog | dbmodels.AnalyticsExecLog]]:
+        """
+            Parameters  
+            ----------
+            **log_status** models.LogStatus  
+            Which status should be searched for. Statuses are defined in models.LogStatus, however if given 'Any', all statuses will be accepted.  
+            **target_names** list[str]  
+            List of search target (search criteria & global notification rules) names which will be searched for. If [], all names will be accpeted.  
+            **limit_records** int  
+            Amount records to select.  
+            **pg_number**  
+            Which page should be selected.  
+            **units_of_time** models.TimeUnit  
+            Selected unit of time defined in models.TimeUnit; If set to ALL_TIME, all created_at will be accepted and time_amount is ignored.  
+            **time_amount** int  
+            Amount of time units.  
+            **sort_by** str  
+            How to sort the resulting list - available options "newest", "oldest", "execution_time".    
+            **select_inactive** bool  
+            If true include inactive search targets in the resulting list.  
+            **get_raw, get_clean, get_analytics**  
+            If set to True (default value), the returned list will contain results of raw/clean/analytics type
+
+            Returns
+            -------
+            A list of analyses (models.RawExecLog | models.CleanExecLog | models.AnalyticsExecLog), with a number of total records found on success,  
+            (-1, []) on failure.
+        """
+        parts = []
+        if get_raw:
+            parts.append(self._build_log_query('raw', log_status, target_names, unit_of_time, time_amount, select_inactive))
+        if get_clean:
+            parts.append(self._build_log_query('clean', log_status, target_names, unit_of_time, time_amount, select_inactive))
+        if get_analytics:
+            parts.append(self._build_log_query('analytics', log_status, target_names, unit_of_time, time_amount, select_inactive))
+        if not parts:
+            return (0, [])
+        union_query = " UNION ALL ".join(parts)
+        sort_logic = {
+            "newest": "started_at DESC",
+            "oldest": "started_at ASC",
+            "execution_time": "(finished_at - started_at) DESC"
+        }.get(sort_by, "started_at DESC")
+        offset_n = (pg_number - 1) * limit_records
+        final_query = text(f"""
+            SELECT *, COUNT(*) OVER() as total_records_count
+            FROM ({union_query}) as combined_logs
+            ORDER BY {sort_logic}
+            LIMIT :limit_n OFFSET :offset_n
+        """)
+
+        try:
+            with self.engine.connect() as conn:
+                result = conn.execute(final_query, {'limit_n': limit_records, "offset_n": offset_n}).all()
+                if not result:
+                    return (0, [])
+
+                total_count = result[0]._mapping['total_records_count']
+                logs = [self._map_row_to_exec_log(row) for row in result]
+                return (total_count, logs)
+        except Exception as e:
+            self.log_system_error(
+                error_source='DATABASE',
+                module_name='get_all_execution_logs',
+                error_message=str(e),
+                stack_trace=traceback.format_exc()
+            )
+            return (-1, [])
 
 
 # Test if a connection may be established

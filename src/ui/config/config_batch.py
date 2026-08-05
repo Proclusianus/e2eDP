@@ -394,7 +394,7 @@ elif st.session_state.view_mode == 'form':
     existing_locations = db.get_all_locations_old()
     available_property_types = db.get_all_property_types()
     available_rooms = db.get_all_room_counts()
-    batch_analyses = db.get_batch_analysis_definitions()
+    batch_analyses = db.get_batch_analysis_definitions_old()
     anomaly_analyses = db.get_anomaly_analysis_definitions_old()
 
     # If in edit mode - SELECT currently edited data

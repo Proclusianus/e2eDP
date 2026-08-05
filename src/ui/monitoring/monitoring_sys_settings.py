@@ -1,6 +1,8 @@
+from dataclasses import dataclass, field
+
+
 import streamlit as st
 import pandas as pd
-from dataclasses import dataclass, field
 
 
 from database.db_manager import DBManager
@@ -97,9 +99,7 @@ if "system_settings_changed" not in st.session_state:
 # WEBPAGE CODE #
 ################
 st.header("🔧 System Settings")
-st.divider()
-st.markdown("This menu allows you to view and edit system settings.")
-st.markdown("Listed below are all the settings used by this application alongside brief descriptions explaining the purpose of the given setting.")
+st.markdown("This menu allows you to view and edit system settings. Listed below are all the settings used by this application alongside brief descriptions explaining the purpose of the given setting.")
 st.divider()
 col_save, col_revert, col_restore_def, col_empty = st.columns([0.7, 0.7, 0.7, 3.3])
 with col_save:
