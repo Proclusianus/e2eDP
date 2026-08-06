@@ -246,17 +246,17 @@ def get_db():
     return DBManager()
 db = get_db()
 
-@st.cache_data
+@st.cache_resource
 def get_batch_analysis_definitions(_db):
     return _db.get_batch_analysis_definitions()
-@st.cache_data
+@st.cache_resource
 def get_anomaly_analysis_definitions(_db):
     return _db.get_anomaly_analysis_definitions()
 
-@st.cache_data(ttl=60)
+@st.cache_resource(ttl=60)
 def get_cached_gnr_names(_db, select_inactive: bool) -> list[str]:
     return _db.get_all_gnr_names(select_inactive)
-@st.cache_data(ttl=60)
+@st.cache_resource(ttl=60)
 def get_cached_sc_names(_db, select_inactive: bool) -> list[str]:
     return _db.get_all_sc_names(select_inactive)
 

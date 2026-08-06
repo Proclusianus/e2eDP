@@ -206,15 +206,22 @@ def get_db():
     return DBManager()
 db = get_db()
 
-@st.cache_data(ttl=600) # przetestuj czy po zmianie na enum reportowanie system errorów jest git
+# Must be cached as resource; db_manager.py stores the class definition at one place in RAM.
+# This page, even if it were to directly import it from db_manager, on reload, the class definition
+# might change its place in memory, resulting in pickle seeing it as two different classes
+# and being unable to serialize it.
+#
+# Since these three caches are only used as selectable options (aren't modified), 
+# cache_resource's mutability is not a reason not to use it here.
+@st.cache_resource(ttl=600) 
 def get_cached_locations(_db):
     return _db.get_all_locations()
 
-@st.cache_data
+@st.cache_resource
 def get_cached_transaction_types(_db):
     return _db.get_all_transaction_types()
 
-@st.cache_data
+@st.cache_resource
 def get_cached_analyses(_db):
     return _db.get_anomaly_analysis_definitions()
 
