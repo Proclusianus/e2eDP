@@ -196,6 +196,11 @@ VALUES
     'execution_logs_retention_days', 14, true, 'both', 'Retencja logów wykonania', 'Execution logs retention', 
     'Liczba dni, przez które przechowywane są logi wykonania skryptów. Jeśli wyłączone, logi nie będą usuwane.', 
     'Number of days to keep script execution logs. If disabled, logs are not automatically deleted.'
+),
+(
+  'system_errors_retention_days', 90, FALSE, 'both', 'Retencja błędów systemowych', 'System errors retention', 
+  'Liczba dni przechowywania błędów systemowych. Jeśli wyłączone, błędy nie będą usuwane automatycznie.', 
+  'Number of days to keep system error logs. If disabled, errors will be stored indefinitely.'
 )
 ON CONFLICT (setting_key) DO NOTHING;
 

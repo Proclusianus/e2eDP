@@ -78,7 +78,7 @@ def refresh_sys_settings() -> bool:
 def reset_noted_changes():
     st.session_state.system_settings_changed = dict.fromkeys(st.session_state.system_settings_changed, False)
 
-#@st.cache_resource
+@st.cache_resource
 def get_db():
     return DBManager()
 db = get_db()

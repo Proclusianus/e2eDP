@@ -41,6 +41,14 @@ class TimeUnit(str, Enum):
     DAY = "DAY"
     ALL_TIME = "ALL TIME"
 
+class ErrorSources(str, Enum):
+    SCRAPER = "SCRAPER"
+    CLEANER = "CLEANER"
+    ANALYZER = "ANALYZER"
+    DASHBOARD = "DASHBOARD"
+    MAINTENANCE = "MAINTENANCE"
+    DATABASE = "DATABASE"
+
 ##################
 # SEARCH TARGETS #
 ##################
@@ -82,9 +90,9 @@ class GlobalNotificationRule:
     execution_hours: list[datetime.time] = field(default_factory=list)
 
 
-##################
-# EXECUTION LOGS #
-##################
+###########################
+# EXECUTION LOGS & ERRORS #
+###########################
 class SearchTargetType(Enum):
     SC = 1
     GNR = 2
@@ -130,3 +138,14 @@ class AnalyticsExecLog:
     error_message: str | None
     started_at: datetime
     finished_at: datetime | None
+
+@dataclass(frozen=True)
+class AppSystemError:
+    id: int
+    error_source: str
+    module_name: str | None
+    error_message: str
+    stack_trace: str | None
+    context_data: dict | None
+    occurred_at: datetime
+    is_resolved: bool

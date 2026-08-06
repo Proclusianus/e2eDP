@@ -204,21 +204,24 @@ def draw_execlog_card(log: RawExecLog | CleanExecLog | AnalyticsExecLog):
 #############
 # CALLBACKS #
 #############
-def get_data_callback():
+def get_data_callback(update_pg_number: bool = True):
     error_msgs = validate_inputs()
     if len(error_msgs) == 1:
         st.toast(error_msgs[0], icon="❌", duration=8)
     elif len(error_msgs) > 1:
         st.toast("\n".join([e for e in error_msgs]), icon="❌", duration=8)
     else:
+        old_val = st.session_state.logs_page_number
+        if update_pg_number: st.session_state.logs_page_number = 1
         if update_session_data():
-            st.toast("Obtaining Log Data Successful!", icon="✅", duration=8)
+            #st.toast("Obtaining Log Data Successful!", icon="✅", duration=8)
+            pass
         else:
             st.toast("Obtaining Log Data Failed!", icon="❌", duration=8)
+            st.session_state.logs_page_number = old_val
 
 def change_page_callback():
-    st.session_state.logs_current_page = 1
-    get_data_callback()
+    get_data_callback(False)
 
 def per_page_callback():
     if st.session_state.logs_page_limit_amount > 200:
@@ -238,7 +241,7 @@ def time_since_callback():
 ###########################
 # Cached Data & Fragments #
 ###########################
-#@st.cache_resource
+@st.cache_resource
 def get_db():
     return DBManager()
 db = get_db()
@@ -315,7 +318,7 @@ if are_there_any_search_targets(db):
     if "logs_first_page_open_in_session" not in st.session_state:
         st.session_state.logs_first_page_open_in_session = True
         if update_session_data():
-            st.toast("Obtaining Log Data Successful!", icon="✅", duration=8)
+            pass
         else:
             st.toast("Obtaining Log Data Failed!", icon="❌", duration=8)
 else:

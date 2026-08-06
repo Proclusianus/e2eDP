@@ -206,7 +206,7 @@ def get_db():
     return DBManager()
 db = get_db()
 
-@st.cache_data(ttl=600)
+@st.cache_data(ttl=600) # przetestuj czy po zmianie na enum reportowanie system errorów jest git
 def get_cached_locations(_db):
     return _db.get_all_locations()
 

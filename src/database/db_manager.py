@@ -51,7 +51,7 @@ class DBManager:
                 return result.scalar()
         except Exception as e:
             self.log_system_error(
-                error_source='DATABASE',
+                error_source=dbmodels.ErrorSources.DATABASE,
                 module_name=f'get_count_{table_name}',
                 error_message=str(e),
                 stack_trace=traceback.format_exc()
@@ -94,7 +94,7 @@ class DBManager:
                 return locations
         except Exception as e:
             self.log_system_error(
-                error_source='DATABASE',
+                error_source=dbmodels.ErrorSources.DATABASE,
                 module_name='get_all_locations',
                 error_message=str(e),
                 stack_trace=traceback.format_exc()
@@ -115,7 +115,7 @@ class DBManager:
                 return [row[0] for row in result]
         except Exception as e:
             self.log_system_error(
-                error_source='DATABASE',
+                error_source=dbmodels.ErrorSources.DATABASE,
                 module_name=f'get_enum_{enum_name}',
                 error_message=str(e),
                 stack_trace=traceback.format_exc()
@@ -151,7 +151,7 @@ class DBManager:
                 return anomaly_analyses
         except Exception as e:
             self.log_system_error(
-                error_source='DATABASE',
+                error_source=dbmodels.ErrorSources.DATABASE,
                 module_name='get_anomaly_analysis_definitions',
                 error_message=str(e),
                 stack_trace=traceback.format_exc()
@@ -179,7 +179,7 @@ class DBManager:
                 return batch_analyses
         except Exception as e:
             self.log_system_error(
-                error_source='DATABASE',
+                error_source=dbmodels.ErrorSources.DATABASE,
                 module_name='get_batch_analysis_definitions',
                 error_message=str(e),
                 stack_trace=traceback.format_exc()
@@ -416,7 +416,7 @@ class DBManager:
             return True
         except Exception as e:
             self.log_system_error(
-                error_source='DATABASE',
+                error_source=dbmodels.ErrorSources.DATABASE,
                 module_name='soft_delete_criteria',
                 error_message=str(e),
                 stack_trace=traceback.format_exc(),
@@ -433,8 +433,9 @@ class DBManager:
             return True
         except Exception as e:
             self.log_system_error(
-                error_source='DATABASE',
+                error_source=dbmodels.ErrorSources.DATABASE,
                 module_name='update_criteria_status',
+                stack_trace=traceback.format_exc(),
                 error_message=str(e)
             )
             return False
@@ -494,7 +495,7 @@ class DBManager:
                 return [row[0] for row in result]
         except Exception as e:
             self.log_system_error(
-                error_source='DATABASE',
+                error_source=dbmodels.ErrorSources.DATABASE,
                 module_name='get_all_sc_names',
                 error_message=str(e),
                 stack_trace=traceback.format_exc()
@@ -567,7 +568,7 @@ class DBManager:
             return rules
         except Exception as e:
             self.log_system_error(
-                error_source='DATABASE',
+                error_source=dbmodels.ErrorSources.DATABASE,
                 module_name='get_current_global_notifs',
                 error_message=str(e),
                 stack_trace=traceback.format_exc()
@@ -626,7 +627,7 @@ class DBManager:
                 )
         except Exception as e:
             self.log_system_error(
-                error_source='DATABASE',
+                error_source=dbmodels.ErrorSources.DATABASE,
                 module_name='get_global_notification_rule',
                 error_message=str(e),
                 stack_trace=traceback.format_exc(),
@@ -666,7 +667,7 @@ class DBManager:
                     return _execute_save_logic(new_conn)
             except Exception as e:
                 self.log_system_error(
-                    error_source='DATABASE',
+                    error_source=dbmodels.ErrorSources.DATABASE,
                     module_name='save_new_global_notification_rule',
                     error_message=str(e),
                     stack_trace=traceback.format_exc(),
@@ -698,7 +699,7 @@ class DBManager:
                 return True
             except Exception as e:
                 self.log_system_error(
-                    error_source='DATABASE',
+                    error_source=dbmodels.ErrorSources.DATABASE,
                     module_name='soft_delete_global_notification_rule',
                     error_message=str(e),
                     stack_trace=traceback.format_exc(),
@@ -722,7 +723,7 @@ class DBManager:
                 return new_id
         except Exception as e:
             self.log_system_error(
-                error_source='DATABASE',
+                error_source=dbmodels.ErrorSources.DATABASE,
                 module_name='replace_global_rule',
                 error_message=str(e),
                 stack_trace=traceback.format_exc(),
@@ -743,7 +744,7 @@ class DBManager:
             return True
         except Exception as e:
             self.log_system_error(
-                error_source='DATABASE',
+                error_source=dbmodels.ErrorSources.DATABASE,
                 module_name='set_global_notification_activation_status',
                 error_message=str(e),
                 stack_trace=traceback.format_exc(),
@@ -779,7 +780,7 @@ class DBManager:
                 return True
         except Exception as e:
             self.log_system_error(
-                error_source='DATABASE',
+                error_source=dbmodels.ErrorSources.DATABASE,
                 module_name='update_global_notification_nonessential_data',
                 error_message=str(e),
                 stack_trace=traceback.format_exc()
@@ -803,7 +804,7 @@ class DBManager:
                 return result.fetchone() is not None
         except Exception as e:
             self.log_system_error(
-                error_source='DATABASE',
+                error_source=dbmodels.ErrorSources.DATABASE,
                 module_name='does_global_notification_rule_name_exist',
                 error_message=str(e),
                 stack_trace=traceback.format_exc(),
@@ -833,7 +834,7 @@ class DBManager:
                 return [row[0] for row in result]
         except Exception as e:
             self.log_system_error(
-                error_source='DATABASE',
+                error_source=dbmodels.ErrorSources.DATABASE,
                 module_name='get_all_gnr_names',
                 error_message=str(e),
                 stack_trace=traceback.format_exc()
@@ -875,7 +876,7 @@ class DBManager:
                 return sys_settings
         except Exception as e:
             self.log_system_error(
-                error_source='DATABASE', 
+                error_source=dbmodels.ErrorSources.DATABASE, 
                 module_name='get_all_system_settings', 
                 error_message=str(e),
                 stack_trace=traceback.format_exc()
@@ -915,7 +916,7 @@ class DBManager:
                 return True
             except Exception as e:
                 self.log_system_error(
-                    error_source='DATABASE', 
+                    error_source=dbmodels.ErrorSources.DATABASE, 
                     module_name='modify_system_setting', 
                     error_message=str(e),
                     stack_trace=traceback.format_exc(),
@@ -938,7 +939,7 @@ class DBManager:
                 return True
         except Exception as e:
             self.log_system_error(
-                error_source='DATABASE',
+                error_source=dbmodels.ErrorSources.DATABASE,
                 module_name='modify_system_settings',
                 error_message=str(e),
                 stack_trace=traceback.format_exc(),
@@ -956,7 +957,7 @@ class DBManager:
     ##################################
     # EXECUTION & ERROR LOGS METHODS #
     ##################################
-    def log_system_error(self, error_source: str, module_name: str, error_message: str, 
+    def log_system_error(self, error_source: dbmodels.ErrorSources, module_name: str, error_message: str, 
                         stack_trace: str = None, context_data: dict = None):
         """Saves an error log to orchestration.system_errors"""
         query = text("""
@@ -971,13 +972,86 @@ class DBManager:
                     (error_source, module_name, error_message, stack_trace, context_data)
                     VALUES (:source, :mod, :msg, :trace, :ctx)
                 """),{
-                    "source": error_source, "mod": module_name,
+                    "source": error_source.value, "mod": module_name,
                     "msg": error_message, "trace": stack_trace,
                     "ctx": json.dumps(context_data) if context_data else None
                 })
         except Exception as e:
             print(f"CRITICAL ERROR: Could not log to DB: {e}")
 
+    def get_system_errors(self, is_solved: bool, limit_records: int, pg_number: int) -> tuple[int, list[dbmodels.AppSystemError]]:
+        """
+            Returns a tuple of matching record count and a list of system errors (models.SystemError).  
+            If operation fails returns (-1, []).
+        """
+        query = text("""
+            SELECT 
+                id, 
+                error_source, 
+                COALESCE(module_name, '') as module_name, 
+                error_message, 
+                COALESCE(stack_trace, '') as stack_trace, 
+                context_data as context_data, 
+                occurred_at, 
+                is_resolved,
+                COUNT(*) OVER() as total_records_count
+            FROM orchestration.system_errors
+            WHERE is_resolved = :is
+            ORDER BY occurred_at DESC
+            LIMIT :limit_n OFFSET :offset_n
+        """)
+        offset_n = (pg_number - 1) * limit_records
+        try:
+            with self.engine.begin() as conn:
+                result = conn.execute(query, {"is": is_solved, "limit_n": limit_records, "offset_n": offset_n}).all()
+                if not result:
+                    return (0, [])
+                total_count = result[0]._mapping["total_records_count"]
+                sys_errors: list[dbmodels.AppSystemError] = [
+                    dbmodels.AppSystemError(
+                        id=r._mapping["id"],
+                        error_source=r._mapping["error_source"],
+                        module_name=r._mapping["module_name"],
+                        error_message=r._mapping["error_message"],
+                        stack_trace=r._mapping["stack_trace"],
+                        context_data=r._mapping["context_data"],
+                        occurred_at=r._mapping["occurred_at"],
+                        is_resolved=r._mapping["is_resolved"]
+                    ) for r in result
+                ]
+                return (total_count, sys_errors)
+        except Exception as e:
+            self.log_system_error(
+                error_source=dbmodels.ErrorSources.DATABASE,
+                module_name='get_system_errors',
+                error_message=str(e),
+                stack_trace=traceback.format_exc()
+            )
+            return (-1, [])
+
+    def set_system_error_resolution_status(self, syserr_id: int, syserr_new_status: bool) -> bool:
+        """
+            Sets is_resolved to syserr_new_status for system error given by syserr_id.  
+            Returns True on success, False on failure.
+        """
+        query = text("""
+            UPDATE orchestration.system_errors 
+            SET is_resolved = :ns 
+            WHERE id = :seid
+        """)
+        try:
+            with self.engine.begin() as conn:
+                conn.execute(query, {"ns": syserr_new_status, "seid": syserr_id})
+                return True
+        except Exception as e:
+            self.log_system_error(
+                error_source=dbmodels.ErrorSources.DATABASE,
+                module_name='set_system_error_resolution_status',
+                error_message=str(e),
+                stack_trace=traceback.format_exc(),
+                context_data={"syserr_id": syserr_id, "syserr_new_status": syserr_new_status}
+            )
+            return False
 
     def _build_log_query(self, schema: str, log_status: dbmodels.LogStatus, 
                          target_names: list[str], unit: dbmodels.TimeUnit, 
@@ -1138,7 +1212,7 @@ class DBManager:
                 return (total_count, logs)
         except Exception as e:
             self.log_system_error(
-                error_source='DATABASE',
+                error_source=dbmodels.ErrorSources.DATABASE,
                 module_name='get_all_execution_logs',
                 error_message=str(e),
                 stack_trace=traceback.format_exc()

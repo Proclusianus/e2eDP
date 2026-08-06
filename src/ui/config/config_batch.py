@@ -9,6 +9,7 @@ import pandas as pd
 
 
 from database.db_manager import DBManager
+from database.models import ErrorSources
 
 ###########
 # STRINGS #
@@ -199,7 +200,7 @@ def save_search_criteria(db: DBManager, target_name: str, desc: str, transaction
         return n_id
     except Exception as e:
         db.log_system_error(
-            error_source='DASHBOARD',
+            error_source=ErrorSources.DASHBOARD,
             module_name=err_module_name,
             error_message=str(e),
             stack_trace=traceback.format_exc(),
@@ -578,7 +579,7 @@ elif st.session_state.view_mode == 'form':
                             st.rerun()
                         except Exception as e:
                             db.log_system_error(
-                                error_source='DASHBOARD',
+                                error_source=ErrorSources.DASHBOARD,
                                 module_name='config_batch_edit_non_essential',
                                 error_message=str(e),
                                 stack_trace=traceback.format_exc(),

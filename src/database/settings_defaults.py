@@ -16,4 +16,9 @@ DEFAULT_SYSTEM_SETTINGS = [
         setting_value=14, 
         is_enabled=True
     ),
+    SystemSettingChange(
+        setting_key='system_errors_retention_days', 
+        setting_value=90, 
+        is_enabled=False
+    ),
 ]
