@@ -1,10 +1,9 @@
 import datetime
-import traceback
 from dataclasses import dataclass, field
+import re
 
 
 import streamlit as st
-import pandas as pd
 
 
 from database.db_manager import DBManager
@@ -66,10 +65,15 @@ def has_essential_changes(edited: GlobalNotificationRule, initial: GlobalNotific
     return False
 
 def has_non_essential_changes(edited: GlobalNotificationRule, initial: GlobalNotificationRule) -> bool:
+    def to_analysis_set(analyses):
+        return {
+            (a.analysis_id, a.param_value if a.param_value is not None else None) 
+            for a in analyses
+        }
     return (
         edited.rule_name != initial.rule_name or
         edited.description != initial.description or
-        set(edited.analyses) != set(initial.analyses) or
+        to_analysis_set(edited.analyses) != to_analysis_set(initial.analyses) or
         set(edited.execution_hours) != set(initial.execution_hours)
     )
 
@@ -121,10 +125,14 @@ def validate_gnr_form(db: DBManager, val_data: ValidationData, search_all: bool,
             error_msgs.append(f"City name '{city}' cannot be longer than 100 characters.")
 
     # Scheduled hours
+    time_pattern = re.compile(r"^\d{1,2}:\d{2}$")
     parsed_hours = []
     if schedule_input.strip():
         raw_times = [t.strip() for t in schedule_input.split(',') if t.strip()]
         for t in raw_times:
+            if not time_pattern.match(t):
+                error_msgs.append(f"Invalid format: '{t}'. Minutes must have two digits (e.g., 8:09 instead of 8:9).")
+                continue
             try:
                 valid_time = datetime.datetime.strptime(t, "%H:%M").time()
                 parsed_hours.append(valid_time)

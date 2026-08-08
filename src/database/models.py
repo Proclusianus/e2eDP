@@ -11,6 +11,16 @@ class Location:
     city_name: str
 
 @dataclass(frozen=True)
+class PropertyType:
+    pt_id: int
+    type_name: str
+
+@dataclass(frozen=True)
+class RoomCount:
+    room_id: int
+    room_label: str
+
+@dataclass(frozen=True)
 class SystemSetting:
     setting_key: str
     setting_value: int
@@ -87,8 +97,36 @@ class GlobalNotificationRule:
     is_active: bool
     cities: list[str] = field(default_factory=list)
     analyses: list[ActivatedAnalysis] = field(default_factory=list)
-    execution_hours: list[datetime.time] = field(default_factory=list)
+    execution_hours: list[time] = field(default_factory=list)
 
+@dataclass(frozen=True)
+class SearchCriteria:
+    id: int
+    target_name: str
+    description: str | None
+    transaction_type: str
+    market_type: str
+    min_price: float | None
+    max_price: float | None
+    min_area: float | None
+    max_area: float | None
+    is_active: bool
+    is_soft_deleted: bool
+    created_at: datetime
+    cities: list[str] = field(default_factory=list)
+    property_types: list[PropertyType] = field(default_factory=list)
+    rooms: list[RoomCount] = field(default_factory=list)
+    execution_hours: list[time] = field(default_factory=list)
+    batch_analyses: list[ActivatedAnalysis] = field(default_factory=list)
+    anomaly_analyses: list[ActivatedAnalysis] = field(default_factory=list)
+
+@dataclass(frozen=True)
+class SearchCriteriaNonEssentialData:
+    name: str | None
+    description: str | None
+    execution_hours: list[time]
+    batch_analyses: list[ActivatedAnalysis]
+    anomaly_analyses: list[ActivatedAnalysis]
 
 ###########################
 # EXECUTION LOGS & ERRORS #

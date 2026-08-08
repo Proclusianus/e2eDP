@@ -82,16 +82,14 @@ class DBManager:
         """Returns a list of Locations. Returns an empty list if none exist or on error."""
         query_str = "SELECT id, INITCAP(city_name) as city_name FROM config.locations ORDER BY city_name"
         try:
-            locations = []
             with self.engine.connect() as conn:
                 result = conn.execute(text(query_str))
-                for row in result:
-                    r = row._mapping
-                    locations.append(dbmodels.Location(
-                        location_id=r['id'],
-                        city_name=r['city_name']
-                    ))
-                return locations
+                if not result:
+                    return []
+                return [dbmodels.Location(
+                    location_id=r._mapping['id'],
+                    city_name=r._mapping['city_name']
+                ) for r in result]
         except Exception as e:
             self.log_system_error(
                 error_source=dbmodels.ErrorSources.DATABASE,
@@ -131,24 +129,23 @@ class DBManager:
         return self._get_enum_labels('market_type_enum')
 
     def get_anomaly_analysis_definitions(self) -> list[dbmodels.AnomalyAnalysis]:
-        """Returns a list of AnomalyAnalysis. Returns an empty list if none exist or on error."""
+        """Returns a list of AnomalyAnalysis. Returns an empty list if none exist (There should always be >0) or on error."""
         query_str = "SELECT id, code, name_en, description_en, name_pl, description_pl, takes_parameter FROM config.anomaly_analysis_dictionary"
         try:
-            anomaly_analyses = []
             with self.engine.connect() as conn:
                 result = conn.execute(text(query_str))
-                for row in result:
-                    r = row._mapping
-                    anomaly_analyses.append(dbmodels.AnomalyAnalysis(
-                        id=r['id'],
-                        code=r['code'],
-                        name_pl=r['name_pl'],
-                        name_en=r['name_en'],
-                        description_pl=r['description_pl'],
-                        description_en=r['description_en'],
-                        takes_parameter=r['takes_parameter']
-                    ))
-                return anomaly_analyses
+                if not result:
+                    return []
+                return [dbmodels.AnomalyAnalysis(
+                        id=r._mapping['id'],
+                        code=r._mapping['code'],
+                        name_pl=r._mapping['name_pl'],
+                        name_en=r._mapping['name_en'],
+                        description_pl=r._mapping['description_pl'],
+                        description_en=r._mapping['description_en'],
+                        takes_parameter=r._mapping['takes_parameter']
+                    ) for r in result
+                ]
         except Exception as e:
             self.log_system_error(
                 error_source=dbmodels.ErrorSources.DATABASE,
@@ -159,24 +156,24 @@ class DBManager:
             return []
 
     def get_batch_analysis_definitions(self) -> list[dbmodels.BatchAnalysis]:
-        """Returns a list of BatchAnalysis. Returns an empty list if none exist or on error."""
+        """Returns a list of BatchAnalysis. Returns an empty list if none exist (There should always be >0) or on error."""
         query_str = "SELECT id, code, name_en, description_en, name_pl, description_pl, takes_parameter FROM config.batch_analysis_dictionary"
         try:
-            batch_analyses = []
             with self.engine.connect() as conn:
                 result = conn.execute(text(query_str))
-                for row in result:
-                    r = row._mapping
-                    batch_analyses.append(dbmodels.BatchAnalysis(
-                        id=r['id'],
-                        code=r['code'],
-                        name_pl=r['name_pl'],
-                        name_en=r['name_en'],
-                        description_pl=r['description_pl'],
-                        description_en=r['description_en'],
-                        takes_parameter=r['takes_parameter']
-                    ))
-                return batch_analyses
+                if not result:
+                    return []
+                return [
+                    dbmodels.BatchAnalysis(
+                        id=r._mapping['id'],
+                        code=r._mapping['code'],
+                        name_pl=r._mapping['name_pl'],
+                        name_en=r._mapping['name_en'],
+                        description_pl=r._mapping['description_pl'],
+                        description_en=r._mapping['description_en'],
+                        takes_parameter=r._mapping['takes_parameter']
+                    ) for r in result
+                ]
         except Exception as e:
             self.log_system_error(
                 error_source=dbmodels.ErrorSources.DATABASE,
@@ -186,40 +183,62 @@ class DBManager:
             )
             return []
 
-    ### vvv REFACTOR
-    def get_all_locations_old(self):
-        """Returns a list of record dictionaries (id, city_name)"""
-        query = "SELECT id, INITCAP(city_name) as city_name FROM config.locations ORDER BY city_name"
-        return pd.read_sql(query, self.engine).to_dict('records')
+    def get_all_property_types(self) -> list[dbmodels.PropertyType]:
+        """Returns a list of PropertyType. Returns an empty list if none exist (There should always be >0) or on error."""
+        query = text("""SELECT id, type_name FROM config.property_types ORDER BY type_name""")
+        try:
+            with self.engine.connect() as conn:
+                result = conn.execute(query)
+                if not result:
+                    return []
+                return [
+                    dbmodels.PropertyType(
+                        pt_id=r._mapping['id'],
+                        type_name=r._mapping['type_name']
+                    ) for r in result
+                ]
+        except Exception as e:
+            self.log_system_error(
+                error_source=dbmodels.ErrorSources.DATABASE,
+                module_name='get_all_property_types',
+                error_message=str(e),
+                stack_trace=traceback.format_exc()
+            )
+            return []
 
-    def get_anomaly_analysis_definitions_old(self):
-        """Returns a list of record dictionaries (entire record)"""
-        query = "SELECT id, code, name_en, description_en, name_pl, description_pl, takes_parameter FROM config.anomaly_analysis_dictionary"
-        return pd.read_sql(query, self.engine).to_dict('records')
-
-    def get_all_property_types(self):
-        """Returns a list of record dictionaries (id, type_name)"""
-        query = "SELECT id, type_name FROM config.property_types ORDER BY type_name"
-        return pd.read_sql(query, self.engine).to_dict('records')
-
-    def get_all_room_counts(self):
-        """Returns a list of record dictionaries (id, room_label)"""
-        query = "SELECT id, room_label FROM config.room_counts ORDER BY id"
-        return pd.read_sql(query, self.engine).to_dict('records')
-
-    def get_batch_analysis_definitions_old(self):
-        """Returns a list of record dictionaries (entire record)"""
-        query = "SELECT id, code, name_en, description_en, name_pl, description_pl, takes_parameter FROM config.batch_analysis_dictionary"
-        return pd.read_sql(query, self.engine).to_dict('records')
+    def get_all_room_counts(self) -> list[dbmodels.RoomCount]:
+        """Returns a list of RoomCount. Returns an empty list if none exist (There should always be >0) or on error."""
+        query = text("""SELECT id, room_label FROM config.room_counts ORDER BY id""")
+        try:
+            with self.engine.connect() as conn:
+                result = conn.execute(query)
+                if not result:
+                    return []
+                return [
+                    dbmodels.RoomCount(
+                        room_id=r._mapping['id'],
+                        room_label=r._mapping['room_label']
+                    ) for r in result
+                ]
+        except Exception as e:
+            self.log_system_error(
+                error_source=dbmodels.ErrorSources.DATABASE,
+                module_name='get_all_room_counts',
+                error_message=str(e),
+                stack_trace=traceback.format_exc()
+            )
+            return []
 
     ###########################
     # SEARCH CRITERIA METHODS #
     ###########################
-    def get_current_search_criteria(self):
-        """Returns all non-soft_deleted search criteria"""
-        query = """
+    def get_all_search_criteria(self, get_soft_deleted: bool = False) -> list[dbmodels.SearchCriteria]:
+        """
+            Returns all search criteria. Will include soft-deleted search criteria if get_soft_deleted == True.
+        """
+        query = text("""
             SELECT 
-                sc.id as criteria_id,
+                sc.id,
                 sc.target_name,
                 COALESCE(sc.description, '') as description,
                 sc.transaction_type,
@@ -229,200 +248,235 @@ class DBManager:
                 sc.min_area,
                 sc.max_area,
                 sc.is_active,
-                string_agg(DISTINCT INITCAP(l.city_name), ', ') as cities,
-                string_agg(DISTINCT pt.type_name, ', ') as property_types,
-                string_agg(DISTINCT to_char(sch.execution_time, 'HH24:MI'), ', ') as schedule_hours
+                sc.is_soft_deleted,
+                sc.created_at,
+                COALESCE(jsonb_agg(DISTINCT INITCAP(l.city_name)), '[]'::jsonb) as cities_jsonb,
+                COALESCE(jsonb_agg(DISTINCT jsonb_build_object('id', pt.id, 'type_name', pt.type_name)), '[]'::jsonb) as property_types_jsonb,
+                COALESCE(jsonb_agg(DISTINCT jsonb_build_object('id', rc.id, 'room_label', rc.room_label)), '[]'::jsonb) as rooms_jsonb,
+                COALESCE(jsonb_agg(DISTINCT to_char(sch.execution_time, 'HH24:MI')), '[]'::jsonb) as execution_hours_jsonb,
+                COALESCE(jsonb_agg(DISTINCT jsonb_build_object('id', aba.analysis_id, 'param_value', aba.param_value)), '[]'::jsonb) as batch_analyses_jsonb,
+                COALESCE(jsonb_agg(DISTINCT jsonb_build_object('id', aaa.analysis_id, 'param_value', aaa.param_value)), '[]'::jsonb) as anomaly_analyses_jsonb
             FROM config.search_criteria sc
             LEFT JOIN config.criteria_locations cl ON sc.id = cl.criteria_id
             LEFT JOIN config.locations l ON cl.location_id = l.id
             LEFT JOIN config.criteria_property_types cpt ON sc.id = cpt.criteria_id
             LEFT JOIN config.property_types pt ON cpt.property_type_id = pt.id
+            LEFT JOIN config.criteria_rooms cr ON sc.id = cr.criteria_id
+            LEFT JOIN config.room_counts rc ON cr.room_id = rc.id
             LEFT JOIN config.search_criteria_schedule sch ON sc.id = sch.criteria_id
-            WHERE sc.is_soft_deleted = false
-            GROUP BY 
-                sc.id, sc.target_name, sc.description, sc.transaction_type, 
-                sc.market_type, sc.min_price, sc.max_price, sc.min_area, 
-                sc.max_area, sc.is_active
+            LEFT JOIN config.activated_batch_analyses aba ON sc.id = aba.criteria_id
+            LEFT JOIN config.activated_anomaly_analyses aaa ON sc.id = aaa.criteria_id
+            WHERE sc.is_soft_deleted = :get_sd
+            GROUP BY sc.id
             ORDER BY sc.created_at DESC;
-        """
-        return pd.read_sql(query, self.engine)
+        """)
+        try:
+            with self.engine.connect() as conn:
+                result = conn.execute(query, {"get_sd": get_soft_deleted})
+                if not result:
+                    return []
+                return [dbmodels.SearchCriteria(
+                    id=r._mapping['id'],
+                    target_name=r._mapping['target_name'],
+                    description=r._mapping['description'],
+                    transaction_type=r._mapping['transaction_type'],
+                    market_type=r._mapping['market_type'],
+                    min_price=float(r._mapping['min_price']) if r._mapping['min_price'] else None,
+                    max_price=float(r._mapping['max_price']) if r._mapping['max_price'] else None,
+                    min_area=float(r._mapping['min_area']) if r._mapping['min_area'] else None,
+                    max_area=float(r._mapping['max_area']) if r._mapping['max_area'] else None,
+                    is_active=r._mapping['is_active'],
+                    is_soft_deleted=r._mapping['is_soft_deleted'],
+                    created_at=r._mapping['created_at'],
+                    cities=r._mapping['cities_jsonb'],
+                    property_types=[dbmodels.PropertyType(pt_id=p['id'], type_name=p['type_name']) for p in r._mapping['property_types_jsonb']],
+                    rooms=[dbmodels.RoomCount(room_id=rm['id'], room_label=rm['room_label']) for rm in r._mapping['rooms_jsonb']],
+                    execution_hours=[datetime.datetime.strptime(h, "%H:%M").time() for h in r._mapping['execution_hours_jsonb']],
+                    batch_analyses=[dbmodels.ActivatedAnalysis(analysis_id=ba['id'], param_value=float(ba['param_value']) if ba['param_value'] else None) for ba in r._mapping['batch_analyses_jsonb']],
+                    anomaly_analyses=[dbmodels.ActivatedAnalysis(analysis_id=aa['id'], param_value=float(aa['param_value']) if aa['param_value'] else None) for aa in r._mapping['anomaly_analyses_jsonb']]
+                ) for r in result]
+        except Exception as e:
+            self.log_system_error(
+                error_source=dbmodels.ErrorSources.DATABASE,
+                module_name='get_all_search_criteria',
+                error_message=str(e),
+                stack_trace=traceback.format_exc()
+            )
+            return []
 
-    def get_search_criteria(self, criteria_id: int) -> dict:
+    def get_search_criteria(self, criteria_id: int) -> dbmodels.SearchCriteria | None:
         """
             Retrieves the complete configuration for a specific search criteria, 
             including all nested relational data.  
             If no such search criteria exists, returns None   
-
-            Returns a dictionary with the following keys:
-            - id (int): The unique database identifier for the criteria.
-            - target_name (str): User-defined name of the search target.
-            - description (str): Optional notes or metadata.
-            - transaction_type (enum): Either 'sale' or 'rent'.
-            - market_type (enum): 'primary', 'secondary', or 'both'.
-            - min_price (Decimal): Minimum price threshold.
-            - max_price (Decimal): Maximum price threshold.
-            - min_area (Decimal): Minimum surface area in m2.
-            - max_area (Decimal): Maximum surface area in m2.
-            - is_active (bool): Current operational status.
-            - is_soft_deleted (bool): Logical deletion flag.
-            - created_at (datetime): Timestamp of creation.
-            - cities (list[dict]): List of objects with {'id', 'city_name'}.
-            - property_types (list[dict]): List of objects with {'id', 'type_name'}.
-            - rooms (list[dict]): List of objects with {'id', 'room_label'}.
-            - schedule (list[dict]): List of objects with {'id', 'execution_time' (str HH:MM)}.
-            - batch_analyses (list[dict]): List of {'id', 'param_value'} for macro trends.
-            - anomaly_analyses (list[dict]): List of {'id', 'param_value'} for micro alerts.
         """
-        with self.engine.connect() as conn:
-            main_row = conn.execute(text("SELECT * FROM config.search_criteria WHERE id = :id"), {"id": criteria_id}).fetchone()
-            if not main_row: return None
-
-            data = dict(main_row._mapping)
-            data['cities'] = [
-                {"id": r._mapping['id'], "city_name": r._mapping['city_name']}
-                for r in conn.execute(text("""
-                    SELECT l.id, INITCAP(l.city_name) as city_name FROM config.locations l
-                    JOIN config.criteria_locations cl ON l.id = cl.location_id
-                    WHERE cl.criteria_id = :id
-                """), {"id": criteria_id})
-            ]
-            data['property_types'] = [
-                {"id": r._mapping['id'], "type_name": r._mapping['type_name']}
-                for r in conn.execute(text("""
-                    SELECT pt.id, pt.type_name FROM config.property_types pt
-                    JOIN config.criteria_property_types cpt ON pt.id = cpt.property_type_id
-                    WHERE cpt.criteria_id = :id
-                """), {"id": criteria_id})
-            ]
-            data['rooms'] = [
-                {"id": r._mapping['id'], "room_label": r._mapping['room_label']}
-                for r in conn.execute(text("""
-                    SELECT r.id, r.room_label FROM config.room_counts r
-                    JOIN config.criteria_rooms cr ON r.id = cr.room_id
-                    WHERE cr.criteria_id = :id 
-                """), {"id": criteria_id})
-            ]
-            data['schedule'] = [
-                {"id": r._mapping['id'], "execution_time": r._mapping['execution_time'].strftime("%H:%M")}
-                for r in conn.execute(text("""
-                    SELECT id, execution_time FROM config.search_criteria_schedule
-                    WHERE criteria_id = :id
-                """), {"id": criteria_id})
-            ]
-            data['batch_analyses'] = [
-                {"id": r._mapping['analysis_id'], "param_value": float(r._mapping['param_value']) if r._mapping['param_value'] else None}
-                for r in conn.execute(text("""
-                    SELECT analysis_id, param_value FROM config.activated_batch_analyses
-                    WHERE criteria_id = :id
-                """), {"id": criteria_id})
-            ]
-            data['anomaly_analyses'] = [
-                {"id": r._mapping['analysis_id'], "param_value": float(r._mapping['param_value']) if r._mapping['param_value'] else None}
-                for r in conn.execute(text("""
-                    SELECT analysis_id, param_value FROM config.activated_anomaly_analyses
-                    WHERE criteria_id = :id
-                """), {"id": criteria_id})
-            ]
-
-            return data
-
-    def save_new_search_criteria(self, target_name: str, desc: str, transaction_type: str, market_type: str, price_min: float, 
-                                 price_max: float, area_min: float, area_max: float, cities: list, property_type_ids: list, 
-                                 room_ids: list, hours: list, batch_analyses: list, anomaly_analyses: list) -> int:
-        """
-            Returns the the ID (int) of the created search criteria  
-              
-            cities: list[str], property_type_ids: list[int],  
-            room_ids: list[int], hours: list[datetime.time],  
-            batch_analyses: list[dict] {'id': int, 'value': float/None},  
-            anomaly_analyses: list[dict] {'id': int, 'value': float/None}
-        """
-        with self.engine.begin() as conn:
-            # First create a record in the table itself...
-            res = conn.execute(text("""
-                    INSERT INTO config.search_criteria
-                    (target_name, description, transaction_type, market_type, min_price, max_price, min_area, max_area)
-                    VALUES
-                    (:name, :desc, :tt, :mt, :pmin, :pmax, :amin, :amax)
-                    RETURNING id
-                """),{
-                    "name": target_name, "desc": desc, "tt": transaction_type, "mt": market_type,
-                    "pmin": price_min, "pmax": price_max, "amin": area_min, "amax": area_max 
-            })
-            new_id = res.fetchone()[0]
-
-            # Now take care of the FKs...
-            for city in cities:
-                loc_id = self._get_or_create_location_id(conn, city)
-                conn.execute(text("INSERT INTO config.criteria_locations (criteria_id, location_id) VALUES (:cid, :lid)"), 
-                            {"cid": new_id, "lid": loc_id})
-
-            for pt in property_type_ids:
-                conn.execute(text("INSERT INTO config.criteria_property_types (criteria_id, property_type_id) VALUES (:cid, :ptid)"), 
-                            {"cid": new_id, "ptid": pt})
-
-            for rid in room_ids:
-                conn.execute(text("INSERT INTO config.criteria_rooms (criteria_id, room_id) VALUES (:cid, :rid)"), 
-                            {"cid": new_id, "rid": rid})
-
-            for hour in hours:
-                conn.execute(text("INSERT INTO config.search_criteria_schedule (criteria_id, execution_time) VALUES (:cid, :t)"), 
-                            {"cid": new_id, "t": hour})
-
-            for ba in batch_analyses:
-                conn.execute(text("INSERT INTO config.activated_batch_analyses (criteria_id, analysis_id, param_value) VALUES (:cid, :aid, :pv)"), 
-                            {"cid": new_id, "aid": ba['id'], "pv": ba['value']})
-            
-            for aa in anomaly_analyses:
-                conn.execute(text("INSERT INTO config.activated_anomaly_analyses (criteria_id, analysis_id, param_value) VALUES (:cid, :aid, :pv)"), 
-                            {"cid": new_id, "aid": aa['id'], "pv": aa['value']})
-
-            return new_id
-
-    def does_this_search_criteria_name_exist(self, name: str, ignore_soft_deleted: bool = True) -> bool:
-        """
-            Checks if the given search_criteria name already exists (not case sensitive).  
-            ignore_soft_deleted:  
-            True (default) -> checks only active/paused items (user can re-use names of deleted items).  
-            False -> checks all items (strict uniqueness).
-        """
-        query_str = "SELECT 1 FROM config.search_criteria WHERE LOWER(target_name) = LOWER(:name)"
-        if ignore_soft_deleted:
-            query_str += " AND is_soft_deleted = false"
-
-        with self.engine.connect() as conn:
-            result = conn.execute(text(query_str), {"name": name.strip()})
-            return result.fetchone() is not None
-
-    def soft_delete_criteria(self, criteria_id: int) -> bool:
-        """
-        Marks search criteria as soft_deleted and deletes its schedule records (config.search_criteria_schedule)  
-        Returns True if successfuly soft deleted the criterion.
-        """
-        query_update = text("""
-            UPDATE config.search_criteria 
-            SET is_active = false, is_soft_deleted = true 
-            WHERE id = :id
+        query = text("""
+            SELECT 
+                sc.id,
+                sc.target_name,
+                COALESCE(sc.description, '') as description,
+                sc.transaction_type,
+                sc.market_type,
+                sc.min_price,
+                sc.max_price,
+                sc.min_area,
+                sc.max_area,
+                sc.is_active,
+                sc.is_soft_deleted,
+                sc.created_at,
+                COALESCE(jsonb_agg(DISTINCT INITCAP(l.city_name)), '[]'::jsonb) as cities_jsonb,
+                COALESCE(jsonb_agg(DISTINCT jsonb_build_object('id', pt.id, 'type_name', pt.type_name)), '[]'::jsonb) as property_types_jsonb,
+                COALESCE(jsonb_agg(DISTINCT jsonb_build_object('id', rc.id, 'room_label', rc.room_label)), '[]'::jsonb) as rooms_jsonb,
+                COALESCE(jsonb_agg(DISTINCT to_char(sch.execution_time, 'HH24:MI')), '[]'::jsonb) as execution_hours_jsonb,
+                COALESCE(jsonb_agg(DISTINCT jsonb_build_object('id', aba.analysis_id, 'param_value', aba.param_value)), '[]'::jsonb) as batch_analyses_jsonb,
+                COALESCE(jsonb_agg(DISTINCT jsonb_build_object('id', aaa.analysis_id, 'param_value', aaa.param_value)), '[]'::jsonb) as anomaly_analyses_jsonb
+            FROM config.search_criteria sc
+            LEFT JOIN config.criteria_locations cl ON sc.id = cl.criteria_id
+            LEFT JOIN config.locations l ON cl.location_id = l.id
+            LEFT JOIN config.criteria_property_types cpt ON sc.id = cpt.criteria_id
+            LEFT JOIN config.property_types pt ON cpt.property_type_id = pt.id
+            LEFT JOIN config.criteria_rooms cr ON sc.id = cr.criteria_id
+            LEFT JOIN config.room_counts rc ON cr.room_id = rc.id
+            LEFT JOIN config.search_criteria_schedule sch ON sc.id = sch.criteria_id
+            LEFT JOIN config.activated_batch_analyses aba ON sc.id = aba.criteria_id
+            LEFT JOIN config.activated_anomaly_analyses aaa ON sc.id = aaa.criteria_id
+            WHERE sc.id = :id
+            GROUP BY sc.id;
         """)
-        query_del_schedule = text("""
-            DELETE FROM config.search_criteria_schedule 
-            WHERE criteria_id = :id
-        """)
-        # The rest should be kept to retain important information
         try:
-            with self.engine.begin() as conn:
-                conn.execute(query_update, {"id": criteria_id})
-                conn.execute(query_del_schedule, {"id": criteria_id})
-            return True
+            with self.engine.connect() as conn:
+                result = conn.execute(query, {"id": criteria_id}).fetchone()
+                if not result:
+                    return None
+                r = result._mapping
+                return dbmodels.SearchCriteria(
+                    id=r['id'],
+                    target_name=r['target_name'],
+                    description=r['description'],
+                    transaction_type=r['transaction_type'],
+                    market_type=r['market_type'],
+                    min_price=float(r['min_price']) if r['min_price'] else None,
+                    max_price=float(r['max_price']) if r['max_price'] else None,
+                    min_area=float(r['min_area']) if r['min_area'] else None,
+                    max_area=float(r['max_area']) if r['max_area'] else None,
+                    is_active=r['is_active'],
+                    is_soft_deleted=r['is_soft_deleted'],
+                    created_at=r['created_at'],
+                    cities=r['cities_jsonb'],
+                    property_types=[dbmodels.PropertyType(pt_id=p['id'], type_name=p['type_name']) for p in r['property_types_jsonb']],
+                    rooms=[dbmodels.RoomCount(room_id=rm['id'], room_label=rm['room_label']) for rm in r['rooms_jsonb']],
+                    execution_hours=[datetime.datetime.strptime(h, "%H:%M").time() for h in r['execution_hours_jsonb']],
+                    batch_analyses=[dbmodels.ActivatedAnalysis(analysis_id=ba['id'], param_value=float(ba['param_value']) if ba['param_value'] else None) for ba in r['batch_analyses_jsonb']],
+                    anomaly_analyses=[dbmodels.ActivatedAnalysis(analysis_id=aa['id'], param_value=float(aa['param_value']) if aa['param_value'] else None) for aa in r['anomaly_analyses_jsonb']]
+                )
         except Exception as e:
             self.log_system_error(
                 error_source=dbmodels.ErrorSources.DATABASE,
-                module_name='soft_delete_criteria',
+                module_name='get_search_criteria',
+                error_message=str(e),
+                stack_trace=traceback.format_exc()
+            )
+            return None
+
+    def save_new_search_criteria(self, sc: dbmodels.SearchCriteria, conn=None) -> int | None:
+        """
+            Returns the the ID (int) of the created search criteria. If failed to save returns None.    
+        """
+        def _execute_save_logic(c):
+            res = c.execute(text("""
+                INSERT INTO config.search_criteria
+                (target_name, description, transaction_type, market_type, min_price, max_price, min_area, max_area)
+                VALUES
+                (:name, :desc, :tt, :mt, :pmin, :pmax, :amin, :amax)
+                RETURNING id
+            """), {
+                "name": sc.target_name, "desc": sc.description, 
+                "tt": sc.transaction_type, "mt": sc.market_type,
+                "pmin": sc.min_price, "pmax": sc.max_price, 
+                "amin": sc.min_area, "amax": sc.max_area 
+            })
+            new_id = res.fetchone()[0]
+            for city in sc.cities:
+                loc_id = self._get_or_create_location_id(c, city)
+                c.execute(text("INSERT INTO config.criteria_locations (criteria_id, location_id) VALUES (:cid, :lid)"), 
+                            {"cid": new_id, "lid": loc_id})
+            for pt in sc.property_types:
+                c.execute(text("INSERT INTO config.criteria_property_types (criteria_id, property_type_id) VALUES (:cid, :ptid)"), 
+                            {"cid": new_id, "ptid": pt.pt_id})
+            for rc in sc.rooms:
+                c.execute(text("INSERT INTO config.criteria_rooms (criteria_id, room_id) VALUES (:cid, :rid)"), 
+                            {"cid": new_id, "rid": rc.room_id})
+            for hour in sc.execution_hours:
+                c.execute(text("INSERT INTO config.search_criteria_schedule (criteria_id, execution_time) VALUES (:cid, :t)"), 
+                            {"cid": new_id, "t": hour})
+            for an in sc.batch_analyses:
+                c.execute(text("INSERT INTO config.activated_batch_analyses (criteria_id, analysis_id, param_value) VALUES (:cid, :aid, :pv)"), 
+                            {"cid": new_id, "aid": an.analysis_id, "pv": an.param_value})
+            for an in sc.anomaly_analyses:
+                c.execute(text("INSERT INTO config.activated_anomaly_analyses (criteria_id, analysis_id, param_value) VALUES (:cid, :aid, :pv)"), 
+                            {"cid": new_id, "aid": an.analysis_id, "pv": an.param_value})
+            return new_id
+
+        if conn is None:
+            try:
+                with self.engine.begin() as new_conn:
+                    return _execute_save_logic(new_conn)
+            except Exception as e:
+                self.log_system_error(
+                    error_source=dbmodels.ErrorSources.DATABASE,
+                    module_name='save_new_search_criteria',
+                    error_message=str(e),
+                    stack_trace=traceback.format_exc()
+                )
+                return None
+        else:
+            return _execute_save_logic(conn)
+
+    def soft_delete_criteria(self, criteria_id: int, conn=None) -> bool:
+        """
+            Marks search criteria as soft_deleted and deletes its schedule records (config.search_criteria_schedule)  
+            Returns True if successfuly soft deleted the criterion.
+        """
+        query_update = text("""UPDATE config.search_criteria SET is_active = false, is_soft_deleted = true WHERE id = :id""")
+        query_del_schedule = text("""DELETE FROM config.search_criteria_schedule WHERE criteria_id = :id""")
+        def _execute_delete_logic(c):
+            c.execute(query_update, {"id": criteria_id})
+            c.execute(query_del_schedule, {"id": criteria_id})
+            return True
+
+        if conn is None:
+            try:
+                with self.engine.begin() as new_conn:
+                    return _execute_delete_logic(new_conn)
+            except Exception as e:
+                self.log_system_error(
+                    error_source=dbmodels.ErrorSources.DATABASE,
+                    module_name='soft_delete_criteria',
+                    error_message=str(e),
+                    stack_trace=traceback.format_exc()
+                )
+                return False
+        else:
+            return _execute_delete_logic(conn)
+
+    def replace_search_criteria(self, old_id: int, new_sc: dbmodels.SearchCriteria) -> int | None:
+        """
+            Archives old criteria and creates a new one in one transaction.  
+            Returns the created criteria's id on success or None on failure.
+        """
+        try:
+            with self.engine.begin() as conn:
+                self.soft_delete_criteria(old_id, conn=conn)
+                return self.save_new_search_criteria(new_sc, conn=conn)
+        except Exception as e:
+            self.log_system_error(
+                error_source=dbmodels.ErrorSources.DATABASE,
+                module_name='replace_search_criteria',
                 error_message=str(e),
                 stack_trace=traceback.format_exc(),
-                context_data={"criteria_id": criteria_id}
+                context_data={"old_id": old_id}
             )
-            return False
+            return None
 
     def set_criteria_activation_status(self, criteria_id: int, is_active: bool) -> bool:
         """Returns True if status changed successfuly"""
@@ -434,43 +488,57 @@ class DBManager:
         except Exception as e:
             self.log_system_error(
                 error_source=dbmodels.ErrorSources.DATABASE,
-                module_name='update_criteria_status',
+                module_name='set_criteria_activation_status',
                 stack_trace=traceback.format_exc(),
                 error_message=str(e)
             )
             return False
 
-    def update_search_criteria_nonessential_data(self, criteria_id, name, desc, hours, batch_an, anomaly_an):
-        """Deletes & Re-inserts non essential data for a search criteria"""
-        with self.engine.begin() as conn:
-            # Update name & desc in search_criteria
-            conn.execute(text("""
-                UPDATE config.search_criteria 
-                SET target_name = :name, description = :desc 
-                WHERE id = :id
-            """), {"name": name, "desc": desc, "id": criteria_id})
-
-            # Delete & Re-insert the schedule
-            conn.execute(text("DELETE FROM config.search_criteria_schedule WHERE criteria_id = :id"), {"id": criteria_id})
-            for hour in hours:
-                conn.execute(text("INSERT INTO config.search_criteria_schedule (criteria_id, execution_time) VALUES (:id, :t)"), 
-                            {"id": criteria_id, "t": hour})
-
-            # Delete & Re-insert batch analyses
-            conn.execute(text("DELETE FROM config.activated_batch_analyses WHERE criteria_id = :id"), {"id": criteria_id})
-            for ba in batch_an:
+    def update_search_criteria_nonessential_data(self, criteria_id, data: dbmodels.SearchCriteriaNonEssentialData) -> bool:
+        """
+            Deletes & Re-inserts non-essential data for a search criteria (If a parameter is supposed to stay the same, its old value must be passed to 'data').  
+            Returns True if succeeded, False if failed.
+        """
+        try:
+            with self.engine.begin() as conn:
+                # Update name & desc in search_criteria
                 conn.execute(text("""
-                    INSERT INTO config.activated_batch_analyses (criteria_id, analysis_id, param_value) 
-                    VALUES (:id, :aid, :pv)
-                """), {"id": criteria_id, "aid": ba['id'], "pv": ba['value']})
+                    UPDATE config.search_criteria 
+                    SET target_name = :name, description = :desc 
+                    WHERE id = :id
+                """), {"name": data.name, "desc": data.description, "id": criteria_id})
 
-            # Delete & Re-insert anomaly analyses
-            conn.execute(text("DELETE FROM config.activated_anomaly_analyses WHERE criteria_id = :id"), {"id": criteria_id})
-            for aa in anomaly_an:
-                conn.execute(text("""
-                    INSERT INTO config.activated_anomaly_analyses (criteria_id, analysis_id, param_value) 
-                    VALUES (:id, :aid, :pv)
-                """), {"id": criteria_id, "aid": aa['id'], "pv": aa['value']})
+                # Delete & Re-insert the schedule
+                conn.execute(text("DELETE FROM config.search_criteria_schedule WHERE criteria_id = :id"), {"id": criteria_id})
+                for hour in data.execution_hours:
+                    conn.execute(text("INSERT INTO config.search_criteria_schedule (criteria_id, execution_time) VALUES (:id, :t)"), 
+                                {"id": criteria_id, "t": hour})
+
+                # Delete & Re-insert batch analyses
+                conn.execute(text("DELETE FROM config.activated_batch_analyses WHERE criteria_id = :id"), {"id": criteria_id})
+                for ba in data.batch_analyses:
+                    conn.execute(text("""
+                        INSERT INTO config.activated_batch_analyses (criteria_id, analysis_id, param_value) 
+                        VALUES (:id, :aid, :pv)
+                    """), {"id": criteria_id, "aid": ba.analysis_id, "pv": ba.param_value})
+
+                # Delete & Re-insert anomaly analyses
+                conn.execute(text("DELETE FROM config.activated_anomaly_analyses WHERE criteria_id = :id"), {"id": criteria_id})
+                for aa in data.anomaly_analyses:
+                    conn.execute(text("""
+                        INSERT INTO config.activated_anomaly_analyses (criteria_id, analysis_id, param_value) 
+                        VALUES (:id, :aid, :pv)
+                    """), {"id": criteria_id, "aid": aa.analysis_id, "pv": aa.param_value})
+            return True
+        except Exception as e:
+            self.log_system_error(
+                error_source=dbmodels.ErrorSources.DATABASE,
+                module_name='update_search_criteria_nonessential_data',
+                error_message=str(e),
+                stack_trace=traceback.format_exc(),
+                context_data={"criteria_id": criteria_id}
+            )
+            return False
 
     def get_all_sc_names(self, select_inactive: bool) -> list[str]:
         """
@@ -501,6 +569,30 @@ class DBManager:
                 stack_trace=traceback.format_exc()
             )
             raise dbexcepts.DatabaseError(f"Failed to fetch SC names from database: {str(e)}") from e
+
+    def does_this_search_criteria_name_exist(self, name: str, ignore_soft_deleted: bool = True) -> bool:
+        """
+            Checks if the given search_criteria name already exists (not case sensitive).  
+            ignore_soft_deleted:  
+            True (default) -> checks only active/paused items (user can re-use names of deleted items).  
+            False -> checks all items (strict uniqueness).
+        """
+        query_str = "SELECT 1 FROM config.search_criteria WHERE LOWER(target_name) = LOWER(:name)"
+        if ignore_soft_deleted:
+            query_str += " AND is_soft_deleted = false"
+
+        try:
+            with self.engine.connect() as conn:
+                result = conn.execute(text(query_str), {"name": name.strip()})
+                return result.fetchone() is not None
+        except Exception as e:
+            self.log_system_error(
+                error_source=dbmodels.ErrorSources.DATABASE,
+                module_name='does_this_search_criteria_name_exist',
+                error_message=str(e),
+                stack_trace=traceback.format_exc()
+            )
+            return False
 
     def get_search_criteria_count(self, only_active: bool = True) -> int:
         """

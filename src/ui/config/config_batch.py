@@ -1,15 +1,13 @@
 import datetime
-import traceback
 from typing import NamedTuple
-from typing import Optional, TypedDict
+import re
 
 
 import streamlit as st
-import pandas as pd
 
 
 from database.db_manager import DBManager
-from database.models import ErrorSources
+from database.models import SearchCriteria, SearchCriteriaNonEssentialData, PropertyType, RoomCount, BatchAnalysis, AnomalyAnalysis, Location, ActivatedAnalysis
 
 ###########
 # STRINGS #
@@ -51,23 +49,15 @@ CRITERIA_DELETE_INFO_TEXT = """
 class ValidationResult(NamedTuple):
     error_msgs: list[str]
     hours: list[datetime.time]
-    batch_an: list[dict]
-    anomaly_an: list[dict]
-
-class AnalysisInput(TypedDict):
-    id: int
-    code: str
-    name_en: str
-    takes_parameter: bool
-    is_checked: bool
-    input_value: Optional[float]
+    batch_an: list[ActivatedAnalysis]
+    anomaly_an: list[ActivatedAnalysis]
 
 #############
 # FUNCTIONS #
 #############
-def validate_criteria_form(db: DBManager, initial_name: str, target_name: str, cities: list, price_min: float, 
+def validate_criteria_form(db: DBManager, initial_name: str, target_name: str, cities: list[str], price_min: float, 
                            price_max: float, area_min: float, area_max: float, schedule_input: str, 
-                           batch_analyses: list[AnalysisInput], anomaly_analyses: list[AnalysisInput]) -> ValidationResult:
+                           batch_analyses: list[BatchAnalysis], anomaly_analyses: list[AnomalyAnalysis]) -> ValidationResult:
     error_msgs = []
     # Search Criteria Name
     current_name = target_name.strip()
@@ -94,10 +84,14 @@ def validate_criteria_form(db: DBManager, initial_name: str, target_name: str, c
         error_msgs.append(f"Minimum area {area_min} must be lesser than maximum area {area_max}")
 
     # Scheduled hours
+    time_pattern = re.compile(r"^\d{1,2}:\d{2}$")
     parsed_hours = []
     if schedule_input.strip():
         raw_times = [t.strip() for t in schedule_input.split(',') if t.strip()]
         for t in raw_times:
+            if not time_pattern.match(t):
+                error_msgs.append(f"Invalid format: '{t}'. Minutes must have two digits (e.g., 8:09 instead of 8:9).")
+                continue
             try:
                 valid_time = datetime.datetime.strptime(t, "%H:%M").time()
                 parsed_hours.append(valid_time)
@@ -108,20 +102,20 @@ def validate_criteria_form(db: DBManager, initial_name: str, target_name: str, c
     parsed_hours = list(set(parsed_hours)) # Deduplicate...
 
     # Analytics
-    selected_batch_an = [] # <v lists of {'id': id, 'value': val}
-    selected_anomaly_an = []
+    selected_batch_an: list[ActivatedAnalysis] = []
+    selected_anomaly_an: list[ActivatedAnalysis] = []
     for an in batch_analyses:
-        if an['is_checked']:
-            val = an['input_value']
-            if an['takes_parameter'] and (val is None):
-                error_msgs.append(f"Batch trends analysis '{an['name_en']}' requires a parameter value.")
-            selected_batch_an.append({'id': an['id'], 'value': val})
+        if st.session_state.get(f"cb_batch_{an.id}"): # Whether this analysis has been selected
+            val = st.session_state.get(f"val_batch_{an.id}")
+            if an.takes_parameter and (val is None):
+                error_msgs.append(f"Batch trends analysis '{an.name_en}' requires a parameter value.")
+            selected_batch_an.append(ActivatedAnalysis(analysis_id=an.id, param_value=val)) # Doesn't matter if an incorrect value is added, everything will be rejected if there are any error_msgs
     for an in anomaly_analyses:
-        if an['is_checked']:
-            val = an['input_value']
-            if an['takes_parameter'] and (val is None):
-                error_msgs.append(f"Anomaly detection '{an['name_en']}' requires a parameter value.")
-            selected_anomaly_an.append({'id': an['id'], 'value': val})
+        if st.session_state.get(f"cb_ano_{an.id}"):
+            val = st.session_state.get(f"val_ano_{an.id}")
+            if an.takes_parameter and (val is None):
+                error_msgs.append(f"Anomaly detection '{an.name_en}' requires a parameter value.")
+            selected_anomaly_an.append(ActivatedAnalysis(analysis_id=an.id, param_value=val))
     if not selected_batch_an and not selected_anomaly_an:
         error_msgs.append("Select at least one analysis method.")
 
@@ -132,103 +126,36 @@ def validate_criteria_form(db: DBManager, initial_name: str, target_name: str, c
         anomaly_an=selected_anomaly_an,
     )
 
-def has_essential_changes(current: dict, initial: dict) -> bool:
+def has_essential_changes(current: SearchCriteria, initial: SearchCriteria) -> bool:
+    current_pt_ids = {pt.pt_id for pt in current.property_types}
+    initial_pt_ids = {pt.pt_id for pt in initial.property_types}
+    current_room_ids = {r.room_id for r in current.rooms}
+    initial_room_ids = {r.room_id for r in initial.rooms}
     return (
-        current["tt"] != initial['transaction_type'] or
-        current["mt"] != initial['market_type'] or
-        current["p_min"] != float(initial['min_price']) or
-        current["p_max"] != float(initial['max_price']) or
-        current["a_min"] != float(initial['min_area']) or
-        current["a_max"] != float(initial['max_area']) or
-        set([c.strip().upper() for c in current["cities"]]) != set([c['city_name'].upper() for c in initial['cities']]) or
-        current["props"] != set([p['id'] for p in initial['property_types']]) or
-        current["rooms"] != set([r['id'] for r in initial['rooms']])
+        current.transaction_type != initial.transaction_type or
+        current.market_type != initial.market_type or
+        current.min_price != initial.min_price or
+        current.max_price != initial.max_price or
+        current.min_area != initial.min_area or
+        current.max_area != initial.max_area or
+        set([c.strip().upper() for c in current.cities]) != set([c.strip().upper() for c in initial.cities]) or
+        current_pt_ids != initial_pt_ids or
+        current_room_ids != initial_room_ids
     )
 
-def has_non_essential_changes(current: dict, initial: dict) -> bool:
+def has_non_essential_changes(current: SearchCriteria, initial: SearchCriteria) -> bool:
+    def to_analysis_set(analyses):
+        return {
+            (a.analysis_id, a.param_value if a.param_value is not None else None) 
+            for a in analyses
+        }
     return (
-        current["name"] != initial['target_name'] or
-        current["desc"] != initial['description'] or
-        current["hours"] != set([datetime.datetime.strptime(h['execution_time'], "%H:%M").time() for h in initial['schedule']]) or
-        current["batch_an"] != {a['id']: a['param_value'] for a in initial['batch_analyses']} or
-        current["anomaly_an"] != {a['id']: a['param_value'] for a in initial['anomaly_analyses']}
+        current.target_name != initial.target_name or
+        current.description != initial.description or
+        to_analysis_set(current.batch_analyses) != to_analysis_set(initial.batch_analyses) or
+        to_analysis_set(current.anomaly_analyses) != to_analysis_set(initial.anomaly_analyses) or
+        set(current.execution_hours) != set(initial.execution_hours)
     )
-
-def update_form_defaults(transaction_types: list, market_types: list, available_property_types: list[dict], available_rooms: list[dict],
-                         form_defaults: dict, initial_values: dict):
-    v = initial_values
-    form_defaults.update({
-        "name": v['target_name'],
-        "desc": v['description'],
-        "tt_idx": transaction_types.index(v['transaction_type']),
-        "mt_index": market_types.index(v['market_type']),
-        "p_min": float(v['min_price']), "p_max": float(v['max_price']),
-        "a_min": float(v['min_area']), "a_max": float(v['max_area']),
-        "hours": ", ".join([h['execution_time'] for h in v['schedule']]),
-    })
-    saved_prop_ids = [pt['id'] for pt in v.get('property_types', [])]
-    form_defaults["sel_props"] = [pt for pt in available_property_types if pt['id'] in saved_prop_ids]
-    saved_room_ids = [r['id'] for r in v.get('rooms', [])]
-    form_defaults["sel_rooms"] = [r for r in available_rooms if r['id'] in saved_room_ids]
-    form_defaults["batch_an_settings"] = {a['id']: a['param_value'] for a in v.get('batch_analyses', [])}
-    form_defaults["anomaly_an_settings"] = {a['id']: a['param_value'] for a in v.get('anomaly_analyses', [])}
-
-def save_search_criteria(db: DBManager, target_name: str, desc: str, transaction_type: str, market_type: str, price_min: float, 
-                         price_max: float, area_min: float, area_max: float, cities: list, property_type_ids: list, 
-                         room_ids: list, hours: list, batch_analyses: list, anomaly_analyses: list, is_new: bool) -> int:
-    """
-        Saves a new search criteria or an edit of essential values in a search criteria.  
-        Returns the id of saved criteria. (If saving failed, returns None)  
-        is_new == True - uses localization for adding a new s_c,  
-        is_new == False - uses loc for modifying the current s_c.
-    """
-    if is_new:
-        err_module_name = 'config_batch_save'
-    else:
-        err_module_name = 'config_batch_edit_essential'
-
-    try:
-        n_id = db.save_new_search_criteria(
-            target_name=target_name.strip(), desc=desc,
-            transaction_type=transaction_type, market_type=market_type,
-            price_max=float(price_max), price_min=float(price_min), 
-            area_max=float(area_max), area_min=float(area_min),
-            cities=cities, property_type_ids=property_type_ids,
-            room_ids=room_ids, hours=hours,
-            batch_analyses=batch_analyses, anomaly_analyses=anomaly_analyses
-        )
-        return n_id
-    except Exception as e:
-        db.log_system_error(
-            error_source=ErrorSources.DASHBOARD,
-            module_name=err_module_name,
-            error_message=str(e),
-            stack_trace=traceback.format_exc(),
-            context_data={"target_name": target_name}
-        )
-        return None
-
-def flatten_criteria_dict_to_row(v: dict):
-    """Converts a dictionary given by get_search_criteria() to the format used by st.session_state.main_df."""
-    cities_str = ", ".join([c['city_name'] for c in v.get('cities', [])])
-    prop_types_str = ", ".join([p['type_name'] for p in v.get('property_types', [])])
-    hours_str = ", ".join([h['execution_time'] for h in v.get('schedule', [])])
-
-    return {
-        "criteria_id": v['id'],
-        "target_name": v['target_name'],
-        "description": v['description'] or "",
-        "transaction_type": v['transaction_type'],
-        "market_type": v['market_type'],
-        "min_price": float(v['min_price']),
-        "max_price": float(v['max_price']),
-        "min_area": float(v['min_area']),
-        "max_area": float(v['max_area']),
-        "is_active": v['is_active'],
-        "cities": cities_str,
-        "property_types": prop_types_str,
-        "schedule_hours": hours_str
-    }
 
 # Switching views
 # 1st view shows the list of search criteria
@@ -264,7 +191,7 @@ def toggle_active_callback(criteria_id):
         st.toast("Failed to update status.", icon="❌", duration=8)
 
 def manual_refresh_callback():
-    """Gets current DB search_criteria data into st.session_state.main_df"""
+    """Gets current DB search_criteria data into st.session_state.sc_data"""
     refresh_all_data()
     st.session_state.toast_msg = "Data refreshed from database! 🔄"
 
@@ -276,65 +203,89 @@ def get_db():
     return DBManager()
 db = get_db()
 
-if "main_df" not in st.session_state:
-    st.session_state.main_df = db.get_current_search_criteria()
+@st.cache_resource
+def sc_get_cached_transaction_types(_db) -> list[str]:
+    return _db.get_all_transaction_types()
+@st.cache_resource
+def sc_get_cached_market_types(_db) -> list[str]:
+    return _db.get_all_market_types()
+@st.cache_resource
+def sc_get_cached_property_types(_db) -> list[PropertyType]:
+    return _db.get_all_property_types()
+@st.cache_resource
+def sc_get_cached_room_counts(_db) -> list[RoomCount]:
+    return _db.get_all_room_counts()
+@st.cache_resource
+def sc_get_cached_batch_analyses(_db) -> list[BatchAnalysis]:
+    return _db.get_batch_analysis_definitions()
+@st.cache_resource
+def sc_get_cached_anomaly_analyses(_db) -> list[AnomalyAnalysis]:
+    return _db.get_anomaly_analysis_definitions()
+
+if "sc_data" not in st.session_state:
+    st.session_state.sc_data = db.get_all_search_criteria()
 def refresh_all_data():
-    st.session_state.main_df = db.get_current_search_criteria()
+    st.session_state.sc_data = db.get_all_search_criteria()
 def remove_criteria_from_state(criteria_id):
-    """Removes a single criteria record from st.session_state.main_df"""
-    st.session_state.main_df = st.session_state.main_df[st.session_state.main_df['criteria_id'] != criteria_id]
+    """Removes a single criteria record from st.session_state.sc_data"""
+    st.session_state.sc_data = [
+        sc for sc in st.session_state.sc_data 
+        if sc.id != criteria_id
+    ]
 def update_single_row_in_state(criteria_id):
     """
-        Updates a single criteria record in st.session_state.main_df,  
-        If it isn't found in main_df, it's added to it.
+        Updates a single criteria record in st.session_state.sc_data,  
+        If it isn't found in sc_data, it's added to it.
     """
-    new_data_dict = db.get_search_criteria(criteria_id)
-    if new_data_dict:
-        flat_row = flatten_criteria_dict_to_row(new_data_dict)
-        df = st.session_state.main_df
-        idx_list = df.index[df['criteria_id'] == criteria_id].tolist()
-        if idx_list:
-            for key, value in flat_row.items():
-                df.at[idx_list[0], key] = value
-        else:
-            new_row_df = pd.DataFrame([flat_row])
-            st.session_state.main_df = pd.concat([new_row_df, df], ignore_index=True)
+    new_sc_obj = db.get_search_criteria(criteria_id)
+    if new_sc_obj:
+        current_list = st.session_state.get("sc_data", [])
+        found = False
+        for i, sc in enumerate(current_list):
+            if sc.id == criteria_id:
+                current_list[i] = new_sc_obj
+                found = True
+                break
+        if not found:
+            current_list.insert(0, new_sc_obj)
+        
+        st.session_state.sc_data = list(current_list)
 
 @st.fragment
-def render_criteria_card(row):
+def render_criteria_card(sc: SearchCriteria):
     with st.container(border=True):
         c1, c2, spacer, c3 = st.columns([5, 2.5, 0.5, 2.5])
         
         with c1:
-            st.subheader(row['target_name'])
-            desc = row['description']
+            st.subheader(sc.target_name)
+            desc = sc.description
             if not desc or desc.strip() == "":
-                desc = f"🔍 {row['transaction_type'].upper()} in {row['cities']} | {int(row['min_price'])} - {int(row['max_price'])} PLN"
+                desc = f"🔍 {sc.transaction_type.upper()} in {', '.join(sc.cities)} | {sc.min_price or 0.0} - {sc.max_price or 'No ceiling'} PLN"
             st.write(desc)
         
         with c2:
             st.write("**⏰ Schedule:**")
-            st.caption(row['schedule_hours'] or "No hours scheduled")
+            st.caption(", ".join([h.strftime('%H:%M') for h in sorted(sc.execution_hours)]))
             
         with c3:
             btn_col1, btn_col2 = st.columns([1.2, 1])
             with btn_col1:
                 is_active = st.toggle(
-                    "🟢 Active" if st.session_state.get(f"active_{row['criteria_id']}", row['is_active']) else "⚪ Paused", 
-                    value=row['is_active'], key=f"active_{row['criteria_id']}",
-                    on_change=toggle_active_callback, args=(row['criteria_id'],)
+                    "🟢 Active" if st.session_state.get(f"active_{sc.id}", sc.is_active) else "⚪ Paused", 
+                    value=sc.is_active, key=f"active_{sc.id}",
+                    on_change=toggle_active_callback, args=(sc.id,)
                 )
                 
             with btn_col2:
-                if st.button("📝 Edit", key=f"edit_{row['criteria_id']}", on_click=go_to_form, args=(row['criteria_id'],), use_container_width=True):
+                if st.button("📝 Edit", key=f"edit_{sc.id}", on_click=go_to_form, args=(sc.id,), use_container_width=True):
                     st.rerun()
             
             del_spacer, del_col = st.columns([1.2, 1])
             with del_col:
                 with st.popover("🗑️ Delete", use_container_width=True):
-                    st.warning(f"Delete {row['target_name']}?")
-                    if st.button("🗑️ Delete", key=f"del_{row['criteria_id']}", type="secondary", use_container_width=True, 
-                            on_click=soft_delete_criteria_callback, args=(row['criteria_id'], row['target_name'])):
+                    st.warning(f"Delete {sc.target_name}?")
+                    if st.button("🗑️ Delete", key=f"del_{sc.id}", type="secondary", use_container_width=True, 
+                            on_click=soft_delete_criteria_callback, args=(sc.id, sc.target_name)):
                         st.rerun()
 
 ################
@@ -368,13 +319,12 @@ if st.session_state.view_mode == 'list':
         with col_refresh:
             st.button("🔄 Refresh Data", on_click=manual_refresh_callback, use_container_width=True)
 
-        df = st.session_state.main_df
-        if df.empty:
+        if not st.session_state.sc_data:
             st.info("No search targets found. Click 'Add New Search Criteria' to start.")
         else:
             with st.container(height=900):
-                for _, row in df.iterrows():
-                    render_criteria_card(row)
+                for sc in st.session_state.sc_data:
+                    render_criteria_card(sc)
     st.divider()
 
 #####################################
@@ -384,115 +334,115 @@ elif st.session_state.view_mode == 'form':
     st.divider()
     mode_label = "Edit Target" if st.session_state.edit_criteria_id else "Create New Target"
     st.header(mode_label)
-    
     if st.button("⬅️ Back to List"):
         go_to_list()
         st.rerun()
 
     # Get dictionary data from DB
-    transaction_types = db.get_all_transaction_types()
-    market_types = db.get_all_market_types()
-    existing_locations = db.get_all_locations_old()
-    available_property_types = db.get_all_property_types()
-    available_rooms = db.get_all_room_counts()
-    batch_analyses = db.get_batch_analysis_definitions_old()
-    anomaly_analyses = db.get_anomaly_analysis_definitions_old()
+    # These can't be modified by the user so it's safe to cache them without a ttl
+    transaction_types: list[str] = sc_get_cached_transaction_types(db)
+    market_types: list[str] = sc_get_cached_market_types(db)
+    available_property_types: list[PropertyType] = sc_get_cached_property_types(db)
+    available_rooms: list[RoomCount] = sc_get_cached_room_counts(db)
+    batch_analyses: list[BatchAnalysis] = sc_get_cached_batch_analyses(db)
+    anomaly_analyses: list[AnomalyAnalysis] = sc_get_cached_anomaly_analyses(db)
+
+    # This one should be presumed to update on submitting the form/entering view 2, so no caching
+    existing_locations: list[Location] = db.get_all_locations()
 
     # If in edit mode - SELECT currently edited data
-    form_defaults = {
-        "name": "", "desc": "", "tt_idx": 0, "mt_index": 0,
-        "p_min": 0.0, "p_max": 1000000.0, "a_min": 30.0, "a_max": 100.0,
-        "cities": [], "sel_props": [], "sel_rooms": [], "hours": "",
-        "batch_an_settings": {}, "anomaly_an_settings": {}
-    }
-    initial_values = None
+    # Default values for adding a new sc. id, is_active, is_soft_deleted, created_at are unused
+    form_defaults = SearchCriteria(
+        id=0, target_name="", description="", transaction_type=transaction_types[0], market_type=market_types[0], min_price=0.0, 
+        max_price=1000000.0, min_area=30.0, max_area=100.0, is_active=True, is_soft_deleted=False, created_at=datetime.datetime.now()
+    )
+    initial_values: SearchCriteria | None = None
     edit_id = st.session_state.edit_criteria_id
     if edit_id:
         initial_values = db.get_search_criteria(edit_id)
         if initial_values:
-            update_form_defaults(transaction_types, market_types, available_property_types, available_rooms, form_defaults, initial_values)
+            form_defaults = initial_values
 
     with st.form("criteria_form", clear_on_submit=False):
         st.subheader("1. General Information")
         col1, col2, col3 = st.columns([2, 1, 1])
         with col1:
-            target_name = st.text_input("Search Criteria Name", placeholder="e.g. Mieszkania Kraków", value=form_defaults['name'])
+            target_name = st.text_input("Search Criteria Name", placeholder="e.g. Mieszkania Kraków", value=form_defaults.target_name)
         with col2:
-            transaction_type = st.selectbox("Transaction", options=transaction_types, format_func=lambda x: x.capitalize(), index=form_defaults["tt_idx"])
+            transaction_type = st.selectbox("Transaction", options=transaction_types, format_func=lambda x: x.capitalize(), index=transaction_types.index(form_defaults.transaction_type))
         with col3:
-            market_type = st.selectbox("Market", options=market_types, format_func=lambda x: x.replace('_', ' ').capitalize(), index=form_defaults["mt_index"])
-        
-        description = st.text_area("Description (Optional)", value=form_defaults["desc"])
+            market_type = st.selectbox("Market", options=market_types, format_func=lambda x: x.replace('_', ' ').capitalize(), index=market_types.index(form_defaults.market_type))
+        description = st.text_area("Description (Optional)", value=form_defaults.description)
 
         st.subheader("2. Locations")
-        default_cities = [l for l in existing_locations if l['id'] in [c['id'] for c in (initial_values or {}).get('cities', [])]] if initial_values else []
+        initial_city_names = set(initial_values.cities) if initial_values else set()
         selected_existing_cities = st.multiselect(
             "Select from existing cities:", 
             options=existing_locations,
-            format_func=lambda x: x['city_name'],
-            default=default_cities
+            format_func=lambda x: x.city_name,
+            default=[l for l in existing_locations if l.city_name in initial_city_names]
         )
         new_cities_input = st.text_input("Or add new cities (comma separated):", placeholder="Gdańsk, Sopot, Gdynia")
 
         st.subheader("3. Property Filters")
         f_col1, f_col2 = st.columns(2)
         with f_col1:
-            price_min = st.number_input("Min Price/Rent (PLN)", min_value=0.0, value=form_defaults["p_min"])
-            price_max = st.number_input("Max Price/Rent (PLN)", min_value=0.0, value=form_defaults["p_max"])
+            price_min = st.number_input("Min Price/Rent (PLN)", min_value=0.0, value=form_defaults.min_price)
+            price_max = st.number_input("Max Price/Rent (PLN)", min_value=0.0, value=form_defaults.max_price)
         with f_col2:
-            area_min = st.number_input("Min Area (m²)", min_value=0.0, value=form_defaults["a_min"])
-            area_max = st.number_input("Max Area (m²)", min_value=0.0, value=form_defaults["a_max"])
+            area_min = st.number_input("Min Area (m²)", min_value=0.0, value=form_defaults.min_area)
+            area_max = st.number_input("Max Area (m²)", min_value=0.0, value=form_defaults.max_area)
 
         st.write("**Specific Requirements:**")
+        initial_property_types = {pt.pt_id for pt in form_defaults.property_types}
+        initial_room_count = {rc.room_id for rc in form_defaults.rooms}
         sel_prop_types = st.multiselect("Property Types (Optional - if not selected, checks all)", options=available_property_types, 
-                                        format_func=lambda x: x['type_name'].capitalize(), default=form_defaults["sel_props"])
+                                        format_func=lambda x: x.type_name.capitalize(), default=[pt for pt in available_property_types if pt.pt_id in initial_property_types])
         sel_rooms = st.multiselect("Room Counts (Optional - if not selected, checks every)", options=available_rooms, 
-                                   format_func=lambda x: x['room_label'], default=form_defaults["sel_rooms"])
+                                   format_func=lambda x: x.room_label, default=[rc for rc in available_rooms if rc.room_id in initial_room_count])
 
         st.subheader("4. Automated Schedule")
         schedule_input = st.text_input(
             "Execution Hours (hh:mm, comma separated)", 
             placeholder="08:00, 12:30, 22:00",
             help="Enter hours in 24h format, e.g., 8:00, 15:45",
-            value=form_defaults["hours"]
+            value=", ".join(h.strftime("%H:%M") for h in sorted(form_defaults.execution_hours))
         )
 
         st.subheader("5. Analytics Activation")
         st.markdown("Please select at least one of the following:")
+        batch_an_map = {a.analysis_id: a.param_value for a in form_defaults.batch_analyses}
+        anomaly_an_map = {a.analysis_id: a.param_value for a in form_defaults.anomaly_analyses}
         an_col1, an_col2 = st.columns(2)
         with an_col1:
             st.caption("Batch Trends (Macro)")
             for an in batch_analyses:
-                is_active = an['id'] in form_defaults["batch_an_settings"]
-                saved_val = form_defaults["batch_an_settings"].get(an['id'], None)
+                is_active = an.id in batch_an_map
+                saved_val = batch_an_map.get(an.id)
                 c1, c2 = st.columns([3, 2])
                 with c1:
-                    checked = st.checkbox(an['name_en'], value=is_active, key=f"cb_batch_{an['id']}", help=an['description_en'])
+                    checked = st.checkbox(an.name_en, value=is_active, key=f"cb_batch_{an.id}", help=an.description_en)
                 with c2:
-                    if an['takes_parameter']:
+                    if an.takes_parameter:
                         st.number_input(
-                            "Value", 
-                            key=f"val_batch_{an['id']}", 
-                            value=saved_val, 
-                            placeholder="5.0",
-                            label_visibility="collapsed"
+                            "Value", key=f"val_batch_{an.id}", 
+                            value=float(saved_val) if saved_val is not None else 0.0, 
+                            placeholder="5.0", label_visibility="collapsed"
                         )
         with an_col2:
             st.caption("Anomaly Detection (Micro)")
             for an in anomaly_analyses:
-                is_active = an['id'] in form_defaults["anomaly_an_settings"]
-                saved_val = form_defaults["anomaly_an_settings"].get(an['id'], None)
+                is_active = an.id in anomaly_an_map
+                saved_val = anomaly_an_map.get(an.id)
                 c1, c2 = st.columns([3, 2])
                 with c1:
-                    st.checkbox(an['name_en'], value=is_active, key=f"cb_ano_{an['id']}", help=an['description_en'])
+                    st.checkbox(an.name_en, value=is_active, key=f"cb_ano_{an.id}", help=an.description_en)
                 with c2:
-                    if an.get('takes_parameter'):
+                    if an.takes_parameter:
                         st.number_input(
-                            "Threshold", 
-                            key=f"val_ano_{an['id']}", 
-                            value=saved_val, 
-                            placeholder="5.0",
-                            label_visibility="collapsed"
+                            "Threshold", key=f"val_ano_{an.id}", 
+                            value=float(saved_val) if saved_val is not None else 0.0, 
+                            placeholder="5.0", label_visibility="collapsed"
                         )
 
         # Saving
@@ -500,60 +450,36 @@ elif st.session_state.view_mode == 'form':
         save = st.form_submit_button("Save and Activate Configuration", use_container_width=True, type="primary")
         if save:
             # If user selected nothing, fill with all available
-            prop_type_ids = [pt['id'] for pt in (sel_prop_types or available_property_types)]
-            room_ids = [r['id'] for r in (sel_rooms or available_rooms)]
+            final_property_types = [pt for pt in (sel_prop_types or available_property_types)]
+            final_rooms = [r for r in (sel_rooms or available_rooms)]
             # Prepare the rest of the data
+            old_name = initial_values.target_name if initial_values else ''
             clean_description = (description or "").strip() or None
-            all_cities = list(set([c['city_name'] for c in selected_existing_cities] + 
+            all_cities = list(set([c.city_name for c in selected_existing_cities] + 
                                   [c.strip() for c in new_cities_input.split(',') if c.strip()]))
-            raw_batch_inputs = [
-                {
-                    'id': an['id'], 'code': an['code'], 'name_en': an['name_en'], 'takes_parameter': an['takes_parameter'],
-                    'is_checked': st.session_state.get(f"cb_batch_{an['id']}"), 
-                    'input_value': st.session_state.get(f"val_batch_{an['id']}")
-                } for an in batch_analyses
-            ]
-            raw_anomaly_inputs = [
-                {
-                    'id': an['id'], 'code': an['code'], 'name_en': an['name_en'], 'takes_parameter': an['takes_parameter'],
-                    'is_checked': st.session_state.get(f"cb_ano_{an['id']}"),
-                    'input_value': st.session_state.get(f"val_ano_{an['id']}")
-                } for an in anomaly_analyses
-            ]
-            old_name = (initial_values or {}).get('target_name', '')
             val = validate_criteria_form(db, old_name, target_name, all_cities, price_min, price_max, 
-                                         area_min, area_max, schedule_input, raw_batch_inputs, raw_anomaly_inputs)
-            error_msgs = val.error_msgs
-            parsed_hours = val.hours
-            selected_batch_an = val.batch_an # <v lists of {'id': id, 'value': val}
-            selected_anomaly_an = val.anomaly_an
+                                         area_min, area_max, schedule_input, batch_analyses, anomaly_analyses)
+            error_msgs: list[str] = val.error_msgs
+            parsed_hours: list[datetime.time] = val.hours
+            selected_batch_an: list[ActivatedAnalysis] = val.batch_an
+            selected_anomaly_an: list[ActivatedAnalysis] = val.anomaly_an
             if len(error_msgs) == 1:
                 st.error(error_msgs[0])
             elif len(error_msgs) > 1:
                 st.error("**Please correct the following:**\n" + "\n".join(['- ' + e.strip() for e in error_msgs]))
             else: ### Saving begin
-                final_data = {
-                    "db": db, "target_name": target_name.strip(), "desc": clean_description,
-                    "transaction_type": transaction_type, "market_type": market_type, "price_max": float(price_max),
-                    "price_min": float(price_min), "area_max": float(area_max), "area_min": float(area_min),
-                    "cities": all_cities, "property_type_ids": prop_type_ids, "room_ids": room_ids,
-                    "hours": parsed_hours, "batch_analyses": selected_batch_an, "anomaly_analyses": selected_anomaly_an
-                }
+                final_data = SearchCriteria(
+                    id=edit_id if edit_id else 0, # unnecessary for adding a new one
+                    target_name=target_name.strip(), description=clean_description, transaction_type=transaction_type,
+                    market_type=market_type, min_price=float(price_min), max_price=float(price_max),
+                    min_area=float(area_min), max_area=float(area_max), cities=all_cities,
+                    property_types=final_property_types, rooms=final_rooms, execution_hours=parsed_hours,
+                    batch_analyses=selected_batch_an, anomaly_analyses=selected_anomaly_an,
+                    is_active=True, is_soft_deleted=False, created_at=datetime.datetime.now() # <- unused
+                )
                 if edit_id: # EDITING AN EXISTING ONE
-                    current_essential = { 
-                        "tt": transaction_type, "mt": market_type, "p_min": float(price_min), 
-                        "p_max": float(price_max), "a_min": float(area_min), "a_max": float(area_max), 
-                        "cities": set(all_cities), "props": set(prop_type_ids), "rooms": set(room_ids)
-                    }
-                    current_non_essential = {
-                        "name": target_name.strip(), "desc": clean_description, "hours": set(parsed_hours),
-                        "batch_an": {a['id']: a['value'] for a in selected_batch_an},
-                        "anomaly_an": {a['id']: a['value'] for a in selected_anomaly_an}
-                    }
-                    if has_essential_changes(current_essential, initial_values):
-                        # soft_delete the old one and make a new one out of changed parameters
-                        db.soft_delete_criteria(edit_id)
-                        n_id = save_search_criteria(**final_data, is_new=False)
+                    if has_essential_changes(final_data, initial_values):
+                        n_id = db.replace_search_criteria(old_id=edit_id, new_sc=final_data)
                         if n_id:
                             st.session_state.toast_msg = f"Parameters changed successfully"
                             remove_criteria_from_state(edit_id)
@@ -562,34 +488,25 @@ elif st.session_state.view_mode == 'form':
                             st.rerun()
                         else:
                             st.error(f"Cannot modify the search criteria due to a database error.")
-                    elif has_non_essential_changes(current_non_essential, initial_values):
-                        try:
-                            db.update_search_criteria_nonessential_data(
-                                criteria_id=edit_id,
-                                name=current_non_essential["name"],
-                                desc=current_non_essential["desc"],
-                                hours=list(current_non_essential["hours"]),
-                                batch_an=selected_batch_an,
-                                anomaly_an=selected_anomaly_an
-                            )
+                    elif has_non_essential_changes(final_data, initial_values):
+                        if db.update_search_criteria_nonessential_data(
+                                criteria_id=edit_id, data=SearchCriteriaNonEssentialData(
+                                    name=final_data.target_name,
+                                    description=final_data.description,
+                                    execution_hours=final_data.execution_hours,
+                                    batch_analyses=final_data.batch_analyses,
+                                    anomaly_analyses=final_data.anomaly_analyses
+                            )):
                             st.session_state.toast_msg = f"Parameters changed successfully"
                             update_single_row_in_state(edit_id)
-                            
                             go_to_list()
                             st.rerun()
-                        except Exception as e:
-                            db.log_system_error(
-                                error_source=ErrorSources.DASHBOARD,
-                                module_name='config_batch_edit_non_essential',
-                                error_message=str(e),
-                                stack_trace=traceback.format_exc(),
-                                context_data={"target_name": target_name}
-                            )
+                        else:
                             st.error(f"Cannot modify the search criteria due to a database error.")
                     else: # Nothing changed but user clicked save either way
                         st.info("No changes detected. Change something to save.")
                 else: # ADDING A NEW ONE
-                    n_id = save_search_criteria(**final_data, is_new=True)
+                    n_id = db.save_new_search_criteria(final_data)
                     if n_id:
                         st.session_state.toast_msg = f"Configuration '{target_name}' has been successfully activated!"
                         update_single_row_in_state(n_id)
