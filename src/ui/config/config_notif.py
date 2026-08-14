@@ -118,11 +118,14 @@ def validate_gnr_form(db: DBManager, val_data: ValidationData, search_all: bool,
             error_msgs.append(f"A global notification rule with the name '{current_name}' already exists. Please choose a unique name.")
 
     # Cities
+    location_pattern = re.compile(r"^[A-Za-ząćęłńóśźżĄĆĘŁŃÓŚŹŻ-]+(?: [A-Za-ząćęłńóśźżĄĆĘŁŃÓŚŹŻ-]+)*(?:\/[A-Za-ząćęłńóśźżĄĆĘŁŃÓŚŹŻ-]+(?: [A-Za-ząćęłńóśźżĄĆĘŁŃÓŚŹŻ-]+)*)*$")
     if not val_data.all_cities and not search_all:
         error_msgs.append("At least one location (city) is required.")
     for city in val_data.all_cities:
         if len(city) > 100:
             error_msgs.append(f"City name '{city}' cannot be longer than 100 characters.")
+        if not re.match(location_pattern, city):
+            error_msgs.append(f"Invalid format for location: '{city.lower().capitalize()}'. Use: Unit1/Unit2/Town")
 
     # Scheduled hours
     time_pattern = re.compile(r"^\d{1,2}:\d{2}$")
@@ -386,13 +389,14 @@ elif st.session_state.gnr_view_mode == 'form':
         )
         saved_cities_set = set(form_defaults.cities or [])
         selected_existing_cities = st.multiselect(
-            "Select from existing cities:", key="gnr_edit_cities_select",
+            "Select from existing locations:", key="gnr_edit_cities_select",
             options=existing_locations, format_func=lambda x: x.city_name,
             default=[l for l in existing_locations if l.city_name in saved_cities_set] if not search_all else [],
             disabled=search_all
         )
-        new_cities_input = st.text_input("Or add new cities (comma separated):", key="gnr_edit_new_cities_input", 
-                                         placeholder="Gdańsk, Sopot, Gdynia", disabled=search_all)
+        new_cities_input = st.text_input("Or add new locations (separate each location with a comma; for best accuracy type Admin Unit1/Admin Unit2/Town; just Cityname works too but might result in a mismatch):", 
+                                         placeholder="Wielkopolskie/Gnieźnieński/Gniezno, Mazowieckie/Warszawa, Gdańsk",
+                                         key="gnr_edit_new_cities_input", disabled=search_all)
 
         st.subheader("3. Automated Schedule")
         schedule_input = st.text_input(

@@ -21,4 +21,9 @@ DEFAULT_SYSTEM_SETTINGS = [
         setting_value=90, 
         is_enabled=False
     ),
+    SystemSettingChange(
+        setting_key='max_pages_per_url',
+        setting_value=5,
+        is_enabled=False
+    )
 ]

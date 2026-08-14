@@ -67,6 +67,45 @@ services:
     networks:
       - pricing_network
 
+  tor-proxy: # UNUSED
+    build:
+      context: .
+      dockerfile: Dockerfile.tor
+    container_name: pricing_tor_proxy
+    environment:
+      - TOR_PASSWORD=${TOR_PASSWORD}
+    ports:
+      - "9050:9050" # SOCKS5 port
+      - "9051:9051" # control port
+    networks:
+      - pricing_network
+
+  vpn-gateway:
+    image: qmcgaw/gluetun
+    container_name: pricing_vpn_gateway
+    restart: always
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    environment:
+      - VPN_SERVICE_PROVIDER=protonvpn
+      - VPN_TYPE=wireguard
+      - WIREGUARD_PRIVATE_KEY=${WIREGUARD_PRIVATE_KEY}
+      - SERVER_COUNTRIES=Netherlands
+      - WIREGUARD_MTU=1280
+      - DOT=off
+      - DNS_ADDRESS=1.1.1.1
+      - PROXY_SOCKS5_LISTEN_ADDRESS=:1080
+      - PROXY_SOCKS5_ENABLED=yes
+      - HTTPPROXY=on
+      - HTTPPROXY_LISTEN_ADDRESS=:8888
+    ports:
+      - "55501:1080"
+      - "55502:8888"
+    networks:
+      - pricing_network
+
 volumes:
   postgres_data:
 

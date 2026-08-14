@@ -3,7 +3,7 @@ import streamlit as st
 st.set_page_config(page_title="Housing Price Tracker", page_icon="🏢", layout="wide")
 
 home_page = st.Page("home.py", title="Home", icon="🏠", default=True)
-config_batch = st.Page("config/config_batch.py", title="Batch Criteria", icon="🎯")
+config_batch = st.Page("config/config_batch.py", title="Search Criteria", icon="🎯")
 config_notif = st.Page("config/config_notif.py", title="Global Notifications", icon="🌍")
 res_batch = st.Page("reports/results_batch.py", title="Market Dynamics", icon="📈")
 res_notif = st.Page("reports/results_notif.py", title="Opportunity Alerts", icon="🔔")

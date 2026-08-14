@@ -281,10 +281,10 @@ class DBManager:
                     description=r._mapping['description'],
                     transaction_type=r._mapping['transaction_type'],
                     market_type=r._mapping['market_type'],
-                    min_price=float(r._mapping['min_price']) if r._mapping['min_price'] else None,
-                    max_price=float(r._mapping['max_price']) if r._mapping['max_price'] else None,
-                    min_area=float(r._mapping['min_area']) if r._mapping['min_area'] else None,
-                    max_area=float(r._mapping['max_area']) if r._mapping['max_area'] else None,
+                    min_price=float(r._mapping['min_price']) if r._mapping['min_price'] is not None else None,
+                    max_price=float(r._mapping['max_price']) if r._mapping['max_price'] is not None else None,
+                    min_area=float(r._mapping['min_area']) if r._mapping['min_area'] is not None else None,
+                    max_area=float(r._mapping['max_area']) if r._mapping['max_area'] is not None else None,
                     is_active=r._mapping['is_active'],
                     is_soft_deleted=r._mapping['is_soft_deleted'],
                     created_at=r._mapping['created_at'],
@@ -355,10 +355,10 @@ class DBManager:
                     description=r['description'],
                     transaction_type=r['transaction_type'],
                     market_type=r['market_type'],
-                    min_price=float(r['min_price']) if r['min_price'] else None,
-                    max_price=float(r['max_price']) if r['max_price'] else None,
-                    min_area=float(r['min_area']) if r['min_area'] else None,
-                    max_area=float(r['max_area']) if r['max_area'] else None,
+                    min_price=float(r['min_price']) if r['min_price'] is not None else None,
+                    max_price=float(r['max_price']) if r['max_price'] is not None else None,
+                    min_area=float(r['min_area']) if r['min_area'] is not None else None,
+                    max_area=float(r['max_area']) if r['max_area'] is not None else None,
                     is_active=r['is_active'],
                     is_soft_deleted=r['is_soft_deleted'],
                     created_at=r['created_at'],
@@ -975,6 +975,31 @@ class DBManager:
             )
             return []
 
+    def get_system_setting_values(self, sys_setting_key: str) -> dbmodels.SystemSettingValues | None:
+        """
+            Returns the values for a given system setting.  
+            Returns None if failed to obtain these values.
+        """
+        query = text("""SELECT setting_value, is_enabled FROM config.system_settings WHERE setting_key = :sk""")
+        try:
+            with self.engine.connect() as conn:
+                row = conn.execute(query, {"sk": sys_setting_key}).fetchone()
+                if row:
+                    return dbmodels.SystemSettingValues(
+                        setting_value=row._mapping['setting_value'],
+                        is_enabled=row._mapping['is_enabled']
+                    )
+                return None
+        except Exception as e:
+            self.log_system_error(
+                error_source=dbmodels.ErrorSources.DATABASE, 
+                module_name='get_system_setting_values', 
+                error_message=str(e),
+                stack_trace=traceback.format_exc(),
+                context_data={"sys_setting_key": sys_setting_key}
+            )
+            return None
+
     def modify_system_setting(self, setting_key: str, setting_value: int | None = None, is_enabled: bool | None = None, conn = None) -> bool:
         """ 
             Modifies a system setting given by setting_key.  
@@ -1310,6 +1335,196 @@ class DBManager:
                 stack_trace=traceback.format_exc()
             )
             return (-1, [])
+
+    #################################
+    # ORCHESTRATION.BATCHES METHODS #
+    #################################
+    def start_batch(self, criteria_id: int) -> int:
+        """
+            Creates a new batch record with 'RUNNING' status.  
+            Returns the id of the created record on success, -1 on failure.
+        """
+        query = text("""
+            INSERT INTO orchestration.batches (criteria_id, status, started_at)
+            VALUES (:cid, :st, :n)
+            RETURNING id
+        """)
+        now = datetime.datetime.now(datetime.timezone.utc)
+        try:
+            with self.engine.begin() as conn:
+                res = conn.execute(query, {"cid": criteria_id, "st": dbmodels.BatchStatus.RUNNING, "n": now})
+                return res.fetchone()[0]
+        except Exception as e:
+            self.log_system_error(
+                error_source=dbmodels.ErrorSources.DATABASE,
+                module_name='start_batch',
+                error_message=str(e),
+                stack_trace=traceback.format_exc(),
+                context_data={"criteria_id": criteria_id, "datetime": now.isoformat()}
+            )
+            return -1
+
+    def set_batch_status(self, batch_id: int, status: dbmodels.BatchStatus) -> bool:
+        """
+            Finishes a batch with the given status.  
+            Returns True on success, False on failure.
+        """
+        query = text("""
+            UPDATE orchestration.batches 
+            SET status = :st, finished_at = :n 
+            WHERE id = :bid
+        """)
+        now = datetime.datetime.now(datetime.timezone.utc)
+        try:
+            with self.engine.begin() as conn:
+                conn.execute(query, {"st": status, "bid": batch_id, "n": now})
+                return True
+        except Exception as e:
+            self.log_system_error(
+                error_source=dbmodels.ErrorSources.DATABASE,
+                module_name='set_batch_status',
+                error_message=str(e),
+                stack_trace=traceback.format_exc(),
+                context_data={"batch_id": batch_id, "datetime": now.isoformat()}
+            )
+            return False
+
+    ############
+    # LISTINGS #
+    ############
+    def insert_raw_listing(self, raw_listing: dbmodels.RawListing) -> int:
+        """
+            Inserts a RawListing into the DB.  
+            Returns the id of the inserted raw listing on success and -1 on failure.
+        """
+        query = text("""
+            INSERT INTO raw.listings
+            (criteria_id, batch_id, portal_name, external_id, scraping_url, raw_content, http_status)
+            VALUES (:cid, :bid, :portal, :eid, :url, :content, :status)
+            RETURNING id
+        """)
+        try:
+            with self.engine.begin() as conn:
+                result = conn.execute(query, {
+                    "cid": raw_listing.criteria_id,
+                    "bid": raw_listing.batch_id,
+                    "portal": raw_listing.portal_name,
+                    "eid": raw_listing.external_id,
+                    "url": raw_listing.scraping_url,
+                    "content": json.dumps(raw_listing.raw_content),
+                    "status": raw_listing.http_status
+                })
+            return result.fetchone()[0]
+        except Exception as e:
+            self.log_system_error(
+                error_source=dbmodels.ErrorSources.DATABASE,
+                module_name='insert_raw_listing',
+                error_message=str(e),
+                stack_trace=traceback.format_exc(),
+            )
+            return -1
+
+    def get_raw_listing(self, raw_listing_id: int) -> dbmodels.RawListing | None:
+        """
+            Returns a RawListing dataclass for a raw.listing with an id of raw_listing_id.  
+            If operation fails or no such listing exists, None is returned.
+        """
+        query = text("""
+            SELECT 
+                id, criteria_id, batch_id, clean_listing_id, portal_name, 
+                external_id, scraping_url, raw_content, http_status, scraped_at
+            FROM raw.listings
+            WHERE id = :id;
+        """)
+        try:
+            with self.engine.begin() as conn:
+                result = conn.execute(query, {"id": raw_listing_id}).fetchone()
+                if not result:
+                    return None
+                r = result._mapping
+                return dbmodels.RawListing(
+                    id=r['id'],
+                    criteria_id=r['criteria_id'],
+                    batch_id=r['batch_id'],
+                    clean_listing_id=r['clean_listing_id'],
+                    portal_name=r['portal_name'],
+                    external_id=r['external_id'],
+                    scraping_url=r['scraping_url'],
+                    raw_content=r['raw_content'],
+                    http_status=r['http_status'],
+                    scraped_at=r['scraped_at']
+                )
+        except Exception as e:
+            self.log_system_error(
+                error_source=dbmodels.ErrorSources.DATABASE,
+                module_name='get_raw_listing',
+                error_message=str(e),
+                stack_trace=traceback.format_exc(),
+                context_data={"raw_listing_id": raw_listing_id}
+            )
+            return None
+
+    def get_raw_listings_by_batch(self, batch_id: int) -> list[dbmodels.RawListing]:
+        """
+            Returns a list of RawListings by their batch_id.  
+            Returns an empty list if no elements found or on failure.
+        """
+        query = text("""
+            SELECT 
+                id, criteria_id, batch_id, clean_listing_id, portal_name, 
+                external_id, scraping_url, raw_content, http_status, scraped_at
+            FROM raw.listings
+            WHERE batch_id = :bid
+        """)
+        try:  
+            with self.engine.begin() as conn:
+                results = conn.execute(query, {"bid": batch_id}).fetchall()
+                if not results:
+                    return []
+                return [dbmodels.RawListing(
+                    id=r._mapping['id'],
+                    criteria_id=r._mapping['criteria_id'],
+                    batch_id=r._mapping['batch_id'],
+                    clean_listing_id=r._mapping['clean_listing_id'],
+                    portal_name=r._mapping['portal_name'],
+                    external_id=r._mapping['external_id'],
+                    scraping_url=r._mapping['scraping_url'],
+                    raw_content=r._mapping['raw_content'],
+                    http_status=r._mapping['http_status'],
+                    scraped_at=r._mapping['scraped_at']
+                ) for r in results]
+        except Exception as e:
+            self.log_system_error(
+                error_source=dbmodels.ErrorSources.DATABASE, 
+                module_name='get_raw_listings_by_batch', 
+                error_message=str(e),
+                stack_trace=traceback.format_exc()
+            )
+            return []
+
+    def add_raw_listing_clean_id(self, raw_listing_id: int, clean_listing_id: int) -> bool:
+        """
+            Sets the clean_listing_id column in the raw listing given by raw_listing_id.  
+            Returns True on success, False on failure.
+        """
+        query = text("""
+            UPDATE raw.listings
+            SET clean_listing_id = :cid
+            WHERE id = :rid
+        """)
+        try:
+            with self.engine.begin() as conn:
+                conn.execute(query, {"cid": clean_listing_id, "rid": raw_listing_id})
+                return True
+        except Exception as e:
+            self.log_system_error(
+                error_source=dbmodels.ErrorSources.DATABASE,
+                module_name='add_raw_listing_clean_id',
+                error_message=str(e),
+                stack_trace=traceback.format_exc(),
+                context_data={"raw_listing_id": raw_listing_id, "clean_listing_id": clean_listing_id}
+            )
+            return False
 
 
 # Test if a connection may be established

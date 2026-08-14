@@ -70,11 +70,14 @@ def validate_criteria_form(db: DBManager, initial_name: str, target_name: str, c
             error_msgs.append(f"A search criteria with the name '{target_name}' already exists. Please choose a unique name.")
 
     # Cities
+    location_pattern = re.compile(r"^[A-Za-ząćęłńóśźżĄĆĘŁŃÓŚŹŻ-]+(?: [A-Za-ząćęłńóśźżĄĆĘŁŃÓŚŹŻ-]+)*(?:\/[A-Za-ząćęłńóśźżĄĆĘŁŃÓŚŹŻ-]+(?: [A-Za-ząćęłńóśźżĄĆĘŁŃÓŚŹŻ-]+)*)*$")
     if not cities:
         error_msgs.append("At least one location (city) is required.")
     for city in cities:
         if len(city) > 100:
             error_msgs.append(f"City name '{city}' cannot be longer than 100 characters.")
+        if not re.match(location_pattern, city):
+            error_msgs.append(f"Invalid format for location: '{city}'. Use: Unit1/Unit2/Town")
 
     # Price
     if price_min > price_max:
@@ -377,12 +380,13 @@ elif st.session_state.view_mode == 'form':
         st.subheader("2. Locations")
         initial_city_names = set(initial_values.cities) if initial_values else set()
         selected_existing_cities = st.multiselect(
-            "Select from existing cities:", 
+            "Select from existing locations:", 
             options=existing_locations,
             format_func=lambda x: x.city_name,
             default=[l for l in existing_locations if l.city_name in initial_city_names]
         )
-        new_cities_input = st.text_input("Or add new cities (comma separated):", placeholder="Gdańsk, Sopot, Gdynia")
+        new_cities_input = st.text_input("Or add new locations (separate each location with a comma; for best accuracy type Admin Unit1/Admin Unit2/Town; just Cityname works too but might result in a mismatch):", 
+                                         placeholder="Wielkopolskie/Gnieźnieński/Gniezno, Mazowieckie/Warszawa, Gdańsk")
 
         st.subheader("3. Property Filters")
         f_col1, f_col2 = st.columns(2)

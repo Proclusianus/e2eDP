@@ -1,0 +1,15 @@
+FROM alpine:latest
+
+RUN apk add --no-cache tor bash
+
+RUN mkdir -p /etc/tor /var/lib/tor && \
+    chown -R tor:tor /etc/tor /var/lib/tor
+
+COPY tor/torrc /etc/tor/torrc
+COPY tor/start-tor.sh /start-tor.sh
+RUN chmod +x /start-tor.sh && \
+    chown tor:tor /start-tor.sh /etc/tor/torrc
+
+USER tor
+EXPOSE 9050 9051
+ENTRYPOINT ["/start-tor.sh"]

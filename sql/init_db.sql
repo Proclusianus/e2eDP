@@ -160,7 +160,7 @@ CREATE TABLE IF NOT EXISTS "config"."activated_notifications" (
 
 -- Seeding data
 INSERT INTO config.property_types (type_name) VALUES ('Apartment'), ('House') ON CONFLICT (type_name) DO NOTHING;
-INSERT INTO config.room_counts (room_label) VALUES ('1'), ('2'), ('3'), ('4'), ('5'), ('6'), ('7'), ('8'), ('9'), ('+10') ON CONFLICT (room_label) DO NOTHING;
+INSERT INTO config.room_counts (room_label) VALUES ('1'), ('2'), ('3'), ('4'), ('5'), ('6+') ON CONFLICT (room_label) DO NOTHING;
 INSERT INTO "config"."batch_analysis_dictionary" 
 ("code", "name_en", "name_pl", "description_en", "description_pl") VALUES 
 ('DISTRIBUTION_CALC', 'Price Distribution', 'Rozkład cen w lokalizacji', 
@@ -201,6 +201,11 @@ VALUES
   'system_errors_retention_days', 90, FALSE, 'both', 'Retencja błędów systemowych', 'System errors retention', 
   'Liczba dni przechowywania błędów systemowych. Jeśli wyłączone, błędy nie będą usuwane automatycznie.', 
   'Number of days to keep system error logs. If disabled, errors will be stored indefinitely.'
+),
+(
+  'max_pages_per_url', 5, false, 'both', 'Maksymalna liczba sprawdzonych stron na jedno url', 'Max scraped pages per search target created url',
+  'Limituje liczbę sprawdzanych stron wyników, aby uniknąć potencjalnie trudnych do ominięcia blokad.',
+  'Limits the number of scraped result pages to avoid potentially difficult to bypass anti-bot safeguards.'
 )
 ON CONFLICT (setting_key) DO NOTHING;
 
@@ -220,7 +225,7 @@ CREATE INDEX IF NOT EXISTS idx_batch_data_criteria_id ON "orchestration"."batche
 
 DO $$ BEGIN
   CREATE TYPE "orchestration"."error_source_enum" AS ENUM (
-    'ANALYSIS', 'DASHBOARD', 'MAINTENANCE', 'DATABASE', 'UNKNOWN'
+    'SCRAPER', 'CLEANER', 'ANALYZER', 'DASHBOARD', 'MAINTENANCE', 'DATABASE', 'UNKNOWN'
   );
   EXCEPTION WHEN duplicate_object THEN null;
 END $$;
@@ -260,7 +265,7 @@ CREATE TABLE IF NOT EXISTS "raw"."listings" (
   "clean_listing_id" integer, -- is a FK! added after creating/updating a clean listing out of this one
   "portal_name" varchar(50) NOT NULL,
   "external_id" varchar(100) NOT NULL,
-  "listing_url" text NOT NULL,
+  "scraping_url" text NOT NULL,
   "raw_content" jsonb NOT NULL,
   "http_status" integer NOT NULL,
   "scraped_at" timestamp DEFAULT (now()) NOT NULL

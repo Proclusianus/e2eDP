@@ -37,6 +37,11 @@ class SystemSettingChange:
     setting_value: int
     is_enabled: bool
 
+@dataclass(frozen=True)
+class SystemSettingValues:
+    setting_value: int
+    is_enabled: bool
+
 class LogStatus(str, Enum):
     RUNNING = "RUNNING"
     SUCCESS = "SUCCESS"
@@ -58,6 +63,15 @@ class ErrorSources(str, Enum):
     DASHBOARD = "DASHBOARD"
     MAINTENANCE = "MAINTENANCE"
     DATABASE = "DATABASE"
+    UNKNOWN = "UNKNOWN"
+
+class BatchStatus(str, Enum):
+    RUNNING = "RUNNING"
+    SUCCESS = "SUCCESS"
+    EMPTY = "EMPTY" # No data found
+    PARTIAL = "PARTIAL" # Part of the pages/records error'd
+    PARTIAL_RUNNING = "PARTIAL_RUNNING" #if some fail during raw/clean stages
+    FAILED = "FAILED"
 
 ##################
 # SEARCH TARGETS #
@@ -187,3 +201,19 @@ class AppSystemError:
     context_data: dict | None
     occurred_at: datetime
     is_resolved: bool
+
+########################
+# LISTINGS & ANALYTICS #
+########################
+@dataclass(frozen=True)
+class RawListing:
+    id: int
+    criteria_id: int | None
+    batch_id: int | None
+    clean_listing_id: int | None
+    portal_name: str
+    external_id: str
+    scraping_url: str
+    raw_content: dict
+    http_status: int
+    scraped_at: datetime
