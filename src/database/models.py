@@ -206,14 +206,51 @@ class AppSystemError:
 # LISTINGS & ANALYTICS #
 ########################
 @dataclass(frozen=True)
+class BatchData:
+    id: int
+    criteria_id: int | None
+    status: BatchStatus
+    started_at: datetime
+    finished_at: datetime | None
+
+@dataclass(frozen=True)
 class RawListing:
     id: int
     criteria_id: int | None
     batch_id: int | None
-    clean_listing_id: int | None
     portal_name: str
     external_id: str
     scraping_url: str
+    location_url: str
     raw_content: dict
     http_status: int
     scraped_at: datetime
+
+@dataclass(frozen=True)
+class PriceHistory:
+    id: int
+    listing_id: int
+    batch_id: int | None
+    price_sale_total: float | None
+    price_sale_per_m2: float | None
+    price_rent_monthly: float | None
+    seen_at: datetime
+
+@dataclass(frozen=True)
+class CleanListing:
+    id: int
+    criteria_id: int | None
+    raw_listing_id: int | None
+    location_id: int
+    external_id: str
+    portal_name: str
+    listing_url: str
+    title: str
+    area_m2: float
+    rooms: int | None
+    property_type_id: int
+    market: str
+    transaction_type: str
+    first_seen_at: datetime
+    last_seen_at: datetime
+    is_active: bool

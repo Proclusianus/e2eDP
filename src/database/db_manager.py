@@ -78,6 +78,29 @@ class DBManager:
         )
         return res.fetchone()[0]
 
+    def get_location_by_name(self, location_name: str) -> dbmodels.Location | None:
+        """Returns a Location for the given location_name. If none found or error returns None."""
+        query = text("SELECT id, INITCAP(city_name) as city_name FROM config.locations WHERE city_name = :c")
+        try:
+            with self.engine.connect() as conn:
+                result = conn.execute(query, {"c": location_name.strip().upper()}).fetchone()
+                if not result:
+                    return None
+                r = result._mapping
+                return dbmodels.Location(
+                    location_id=r['id'],
+                    city_name=r['city_name']
+                )
+        except Exception as e:
+            self.log_system_error(
+                error_source=dbmodels.ErrorSources.DATABASE,
+                module_name='get_location_by_name',
+                error_message=str(e),
+                stack_trace=traceback.format_exc(),
+                context_data={"location_name": location_name}
+            )
+            return None
+
     def get_all_locations(self) -> list[dbmodels.Location]:
         """Returns a list of Locations. Returns an empty list if none exist or on error."""
         query_str = "SELECT id, INITCAP(city_name) as city_name FROM config.locations ORDER BY city_name"
@@ -206,6 +229,23 @@ class DBManager:
             )
             return []
 
+    def get_property_type_id_by_name(self, type_name: str) -> int | None:
+        """Returns the property type id for the given name"""
+        query = text("""SELECT id FROM config.property_types WHERE type_name = :tn""")
+        try:
+            with self.engine.connect() as conn:
+                result = conn.execute(query, {"tn": type_name}).fetchone()
+                return result._mapping['id'] if result else None 
+        except Exception as e:
+            self.log_system_error(
+                error_source=dbmodels.ErrorSources.DATABASE,
+                module_name='get_property_type_id_by_name',
+                error_message=str(e),
+                stack_trace=traceback.format_exc(),
+                context_data={"type_name": type_name}
+            )
+            return None
+
     def get_all_room_counts(self) -> list[dbmodels.RoomCount]:
         """Returns a list of RoomCount. Returns an empty list if none exist (There should always be >0) or on error."""
         query = text("""SELECT id, room_label FROM config.room_counts ORDER BY id""")
@@ -228,6 +268,105 @@ class DBManager:
                 stack_trace=traceback.format_exc()
             )
             return []
+
+    def create_location_mapping(self, location_id: int, portal_name: str, external_name: str) -> bool:
+        """Creates a location mapping. Returns True on success, False on fail."""
+        query = text("""
+            INSERT INTO config.location_mappings (location_id, portal_name, external_name)
+            VALUES (:lid, :pname, :ename)
+            ON CONFLICT (external_name, portal_name) DO NOTHING
+        """)
+        try:
+            with self.engine.begin() as conn:
+                conn.execute(query, {"lid": location_id, "pname": portal_name, "ename": external_name})
+            return True
+        except Exception as e:
+            self.log_system_error(
+                error_source=dbmodels.ErrorSources.DATABASE, 
+                module_name="create_location_mapping", 
+                error_message=str(e), 
+                stack_trace=traceback.format_exc(),
+                context_data={"location_id": location_id, "portal_name": portal_name, "external_name": external_name}
+            )
+            return False
+
+    def get_location_mapping_location(self, portal_name: str, external_name: str) -> dbmodels.Location | None:
+        """Returns a Location object for the given portal and external name. Returns None if failed to obtain."""
+        query = text("""
+            SELECT l.id, l.city_name 
+            FROM config.locations l
+            JOIN config.location_mappings lm ON l.id = lm.location_id
+            WHERE lm.portal_name = :pname AND lm.external_name = :ename
+        """)
+        try:
+            with self.engine.connect() as conn:
+                res = conn.execute(query, {"pname": portal_name, "ename": external_name}).fetchone()
+                if res:
+                    return dbmodels.Location(location_id=res._mapping['id'], city_name=res._mapping['city_name'])
+                return None
+        except Exception as e:
+            self.log_system_error(
+                error_source=dbmodels.ErrorSources.DATABASE, 
+                module_name="get_location_mapping_location", 
+                error_message=str(e), 
+                stack_trace=traceback.format_exc(),
+                context_data={"portal_name": portal_name, "external_name": external_name}
+            )
+            return None
+
+    def get_location_mapping_external_name(self, portal_name: str, location_id: int) -> str | None:
+        """Returns an external name for the given location id and portal name. Returns None if failed to obtain."""
+        query = text("""
+            SELECT external_name FROM config.location_mappings 
+            WHERE portal_name = :pname AND location_id = :lid
+        """)
+        try:
+            with self.engine.connect() as conn:
+                res = conn.execute(query, {"pname": portal_name, "lid": location_id}).fetchone()
+                return res[0] if res else None
+        except Exception as e:
+            self.log_system_error(
+                error_source=dbmodels.ErrorSources.DATABASE, 
+                module_name="get_location_mapping_external_name", 
+                error_message=str(e), 
+                stack_trace=traceback.format_exc(),
+                context_data={"portal_name": portal_name, "location_id": location_id}
+            )
+            return None
+
+    def remove_location_mapping(self, location_id: int, portal_name: str, external_name: str) -> bool:
+        """Removes a location mapping. Returns True on success, False on fail."""
+        query = text("""
+            DELETE FROM config.location_mappings 
+            WHERE location_id = :lid AND portal_name = :pname AND external_name = :ename
+        """)
+        try:
+            with self.engine.begin() as conn:
+                conn.execute(query, {"lid": location_id, "pname": portal_name, "ename": external_name})
+            return True
+        except Exception as e:
+            self.log_system_error(
+                error_source=dbmodels.ErrorSources.DATABASE, 
+                module_name="remove_location_mapping", 
+                error_message=str(e), 
+                stack_trace=traceback.format_exc(),
+                context_data={"location_id": location_id, "portal_name": portal_name, "external_name": external_name}
+            )
+            return False
+
+    def is_location_mapped(self, location_id: int, portal_name: str, external_name: str) -> bool:
+        """Returns True if location is mapped, False if not (or if can't connect to DB)."""
+        query = text("""
+            SELECT EXISTS(
+                SELECT 1 FROM config.location_mappings 
+                WHERE location_id = :lid AND portal_name = :pname AND external_name = :ename
+            )
+        """)
+        try:
+            with self.engine.connect() as conn:
+                return conn.execute(query, {"lid": location_id, "pname": portal_name, "ename": external_name}).scalar()
+        except Exception:
+            return False
 
     ###########################
     # SEARCH CRITERIA METHODS #
@@ -1336,6 +1475,174 @@ class DBManager:
             )
             return (-1, [])
 
+    def begin_raw_execution_log(self, job_name: str, batch_id: int, started_at: datetime.datetime) -> int | None:
+        """
+            Creates a new raw execution log.  
+            Returns id of the created raw exec log, None if failed to do so
+        """
+        query = text("""
+            INSERT INTO raw.execution_logs (job_name, batch_id, status, started_at)
+            VALUES (:jn, :bid, :s, :sa)
+            RETURNING id
+        """)
+        try:
+            with self.engine.begin() as conn:
+                return conn.execute(query, {"jn": job_name, "bid": batch_id, "s": dbmodels.LogStatus.RUNNING, "sa": started_at}).fetchone()[0]
+        except Exception as e:
+            self.log_system_error(
+                error_source=dbmodels.ErrorSources.DATABASE,
+                module_name='begin_raw_execution_log',
+                error_message=str(e),
+                stack_trace=traceback.format_exc(),
+                context_data={"batch_id": batch_id, "started_at": started_at}
+            )
+            return None
+
+    def set_raw_execution_log_status(self, raw_exec_log_id: int, status: dbmodels.LogStatus, 
+                                     finished_at: datetime.datetime, err_msg: str = None) -> bool:
+        """
+            Sets the status for the raw execlog given by raw_exec_log_id.  
+            Returns True on success, False on failure.
+        """
+        query = text("""
+            UPDATE raw.execution_logs
+            SET status = :st, finished_at = :n, error_message = :err
+            WHERE id = :lid
+        """)
+        try:
+            with self.engine.begin() as conn:
+                conn.execute(query, {"st": status, "n": finished_at, "err": err_msg, "lid": raw_exec_log_id})
+            return True
+        except Exception as e:
+            self.log_system_error(
+                error_source=dbmodels.ErrorSources.DATABASE,
+                module_name='set_raw_execution_log_status',
+                error_message=str(e),
+                stack_trace=traceback.format_exc(),
+                context_data={"raw_exec_log_id": raw_exec_log_id, "finished_at": finished_at}
+            )
+            return False
+
+    def insert_raw_execution_logs_bulk(self, logs: list[dbmodels.RawExecLog]) -> bool:
+        """
+            Used to insert raw execlogs coming from each listing in bulk to save DB resources.  
+            Returns True on success, False on failure.
+        """
+        if not logs: return True
+
+        query = text("""
+            INSERT INTO raw.execution_logs 
+            (job_name, batch_id, status, error_message, started_at, finished_at)
+            VALUES 
+            (:job_name, :batch_id, :status, :error_message, :started_at, :finished_at)
+        """)
+        data = [{
+            "job_name": log.job_name,
+            "batch_id": log.batch_id,
+            "status": log.status,
+            "error_message": log.error_message,
+            "started_at": log.started_at,
+            "finished_at": log.finished_at,
+        } for log in logs]
+
+        try:
+            with self.engine.begin() as conn:
+                conn.execute(query, data)
+            return True
+        except Exception as e:
+            self.log_system_error(
+                error_source=dbmodels.ErrorSources.DATABASE,
+                module_name='insert_raw_execution_logs_bulk',
+                error_message=str(e),
+                stack_trace=traceback.format_exc(),
+                context_data={"log_count": len(logs)}
+            )
+            return False
+
+    def begin_clean_execution_log(self, job_name: str, raw_listing_id: int, started_at: datetime.datetime) -> int | None:
+        """
+            Creates a new clean execution log.  
+            Returns id of the created clean exec log, None if failed to do so
+        """
+        query = text("""
+            INSERT INTO clean.execution_logs (job_name, raw_listing_id, status, started_at)
+            VALUES (:jn, :rlid, :s, :sa)
+            RETURNING id
+        """)
+        try:
+            with self.engine.begin() as conn:
+                return conn.execute(query, {"jn": job_name, "rlid": raw_listing_id, "s": dbmodels.LogStatus.RUNNING, "sa": started_at}).fetchone()[0]
+        except Exception as e:
+            self.log_system_error(
+                error_source=dbmodels.ErrorSources.DATABASE,
+                module_name='begin_clean_execution_log',
+                error_message=str(e),
+                stack_trace=traceback.format_exc(),
+                context_data={"raw_listing_id": raw_listing_id, "started_at": started_at}
+            )
+            return None
+    
+    def set_clean_execution_log_status(self, clean_exec_log_id: int, status: dbmodels.LogStatus, 
+                                        finished_at: datetime.datetime, err_msg: str = None) -> bool:
+        """
+            Sets the status for the clean execlog given by clean_exec_log_id.  
+            Returns True on success, False on failure.
+        """
+        query = text("""
+            UPDATE clean.execution_logs
+            SET status = :st, finished_at = :n, error_message = :err
+            WHERE id = :lid
+        """)
+        try:
+            with self.engine.begin() as conn:
+                conn.execute(query, {"st": status, "n": finished_at, "err": err_msg, "lid": clean_exec_log_id})
+            return True
+        except Exception as e:
+            self.log_system_error(
+                error_source=dbmodels.ErrorSources.DATABASE,
+                module_name='set_clean_execution_log_status',
+                error_message=str(e),
+                stack_trace=traceback.format_exc(),
+                context_data={"clean_exec_log_id": clean_exec_log_id, "finished_at": finished_at}
+            )
+            return False
+
+    def insert_clean_execution_logs_bulk(self, logs: list[dbmodels.CleanExecLog]) -> bool:
+        """
+            Used to insert clean execlogs coming from each listing in bulk to save DB resources.  
+            Returns True on success, False on failure.
+        """
+        if not logs: return True
+
+        query = text("""
+            INSERT INTO clean.execution_logs 
+            (job_name, raw_listing_id, status, error_message, started_at, finished_at)
+            VALUES 
+            (:job_name, :raw_listing_id, :status, :error_message, :started_at, :finished_at)
+        """)
+        data = [{
+            "job_name": log.job_name,
+            "raw_listing_id": log.raw_listing_id,
+            "status": log.status,
+            "error_message": log.error_message,
+            "started_at": log.started_at,
+            "finished_at": log.finished_at,
+        } for log in logs]
+
+        try:
+            with self.engine.begin() as conn:
+                conn.execute(query, data)
+            return True
+        except Exception as e:
+            self.log_system_error(
+                error_source=dbmodels.ErrorSources.DATABASE,
+                module_name='insert_clean_execution_logs_bulk',
+                error_message=str(e),
+                stack_trace=traceback.format_exc(),
+                context_data={"log_count": len(logs)}
+            )
+            return False
+
     #################################
     # ORCHESTRATION.BATCHES METHODS #
     #################################
@@ -1363,6 +1670,36 @@ class DBManager:
                 context_data={"criteria_id": criteria_id, "datetime": now.isoformat()}
             )
             return -1
+
+    def get_batch(self, batch_id: int) -> dbmodels.BatchData | None:
+        """Returns a batch with the given id. Returns None if not found or on failure."""
+        query = text("""
+            SELECT id, criteria_id, status, started_at, finished_at
+            FROM orchestration.batches
+            WHERE id = :bid
+        """)
+        try:
+            with self.engine.begin() as conn:
+                res = conn.execute(query, {"bid": batch_id}).fetchone()
+                if not res:
+                    return None
+                r = res._mapping
+                return dbmodels.BatchData(
+                    id=r['id'],
+                    criteria_id=r['criteria_id'],
+                    status=dbmodels.BatchStatus(r['status']),
+                    started_at=r['started_at'],
+                    finished_at=r['finished_at']
+                )
+        except Exception as e:
+            self.log_system_error(
+                error_source=dbmodels.ErrorSources.DATABASE,
+                module_name='get_batch',
+                error_message=str(e),
+                stack_trace=traceback.format_exc(),
+                context_data={"batch_id": batch_id}
+            )
+            return None
 
     def set_batch_status(self, batch_id: int, status: dbmodels.BatchStatus) -> bool:
         """
@@ -1392,6 +1729,7 @@ class DBManager:
     ############
     # LISTINGS #
     ############
+    ### RAW ###
     def insert_raw_listing(self, raw_listing: dbmodels.RawListing) -> int:
         """
             Inserts a RawListing into the DB.  
@@ -1399,8 +1737,8 @@ class DBManager:
         """
         query = text("""
             INSERT INTO raw.listings
-            (criteria_id, batch_id, portal_name, external_id, scraping_url, raw_content, http_status)
-            VALUES (:cid, :bid, :portal, :eid, :url, :content, :status)
+            (criteria_id, batch_id, portal_name, external_id, scraping_url, location_url, raw_content, http_status)
+            VALUES (:cid, :bid, :portal, :eid, :url, :lurl, :content, :status)
             RETURNING id
         """)
         try:
@@ -1411,6 +1749,7 @@ class DBManager:
                     "portal": raw_listing.portal_name,
                     "eid": raw_listing.external_id,
                     "url": raw_listing.scraping_url,
+                    "lurl": raw_listing.location_url,
                     "content": json.dumps(raw_listing.raw_content),
                     "status": raw_listing.http_status
                 })
@@ -1431,8 +1770,8 @@ class DBManager:
         """
         query = text("""
             SELECT 
-                id, criteria_id, batch_id, clean_listing_id, portal_name, 
-                external_id, scraping_url, raw_content, http_status, scraped_at
+                id, criteria_id, batch_id, portal_name, 
+                external_id, scraping_url, location_url, raw_content, http_status, scraped_at
             FROM raw.listings
             WHERE id = :id;
         """)
@@ -1446,10 +1785,10 @@ class DBManager:
                     id=r['id'],
                     criteria_id=r['criteria_id'],
                     batch_id=r['batch_id'],
-                    clean_listing_id=r['clean_listing_id'],
                     portal_name=r['portal_name'],
                     external_id=r['external_id'],
                     scraping_url=r['scraping_url'],
+                    location_url=r['location_url'],
                     raw_content=r['raw_content'],
                     http_status=r['http_status'],
                     scraped_at=r['scraped_at']
@@ -1471,8 +1810,8 @@ class DBManager:
         """
         query = text("""
             SELECT 
-                id, criteria_id, batch_id, clean_listing_id, portal_name, 
-                external_id, scraping_url, raw_content, http_status, scraped_at
+                id, criteria_id, batch_id, portal_name, 
+                external_id, scraping_url, location_url, raw_content, http_status, scraped_at
             FROM raw.listings
             WHERE batch_id = :bid
         """)
@@ -1485,10 +1824,10 @@ class DBManager:
                     id=r._mapping['id'],
                     criteria_id=r._mapping['criteria_id'],
                     batch_id=r._mapping['batch_id'],
-                    clean_listing_id=r._mapping['clean_listing_id'],
                     portal_name=r._mapping['portal_name'],
                     external_id=r._mapping['external_id'],
                     scraping_url=r._mapping['scraping_url'],
+                    location_url=r._mapping['location_url'],
                     raw_content=r._mapping['raw_content'],
                     http_status=r._mapping['http_status'],
                     scraped_at=r._mapping['scraped_at']
@@ -1502,29 +1841,144 @@ class DBManager:
             )
             return []
 
-    def add_raw_listing_clean_id(self, raw_listing_id: int, clean_listing_id: int) -> bool:
+    def does_this_raw_listing_exist(self, external_id: str, portal_name: str) -> bool:
         """
-            Sets the clean_listing_id column in the raw listing given by raw_listing_id.  
-            Returns True on success, False on failure.
+            Checks if the listing given by external_id and scraped from portal_name already exists.  
+            Returns True if it does, False if not. Raises a DatabaseError exception on failure.
         """
-        query = text("""
-            UPDATE raw.listings
-            SET clean_listing_id = :cid
-            WHERE id = :rid
-        """)
+        query = text("""SELECT EXISTS(SELECT 1 FROM raw.listings WHERE external_id = :eid AND portal_name = :pname)""")
         try:
-            with self.engine.begin() as conn:
-                conn.execute(query, {"cid": clean_listing_id, "rid": raw_listing_id})
-                return True
+            with self.engine.connect() as conn:
+                result = conn.execute(query, {"eid": external_id, "pname": portal_name}).fetchone()[0]
+                return result
         except Exception as e:
             self.log_system_error(
                 error_source=dbmodels.ErrorSources.DATABASE,
-                module_name='add_raw_listing_clean_id',
+                module_name='does_this_raw_listing_exist',
                 error_message=str(e),
                 stack_trace=traceback.format_exc(),
-                context_data={"raw_listing_id": raw_listing_id, "clean_listing_id": clean_listing_id}
+                context_data={"external_id": external_id, "portal_name": portal_name}
+            )
+            raise dbexcepts.DatabaseError
+
+    ### CLEAN ###
+    def insert_new_clean_listing(self, listing: dbmodels.CleanListing, price_history: dbmodels.PriceHistory) -> int | None:
+        """
+            Inserts a new clean listing.  
+            Returns the id of the created listing, or None on failure.
+        """
+        query_listing = text("""
+            INSERT INTO clean.listings 
+            (criteria_id, raw_listing_id, location_id, external_id, portal_name, listing_url, title, 
+            area_m2, rooms, property_type_id, market, transaction_type, first_seen_at, last_seen_at)
+            VALUES 
+            (:cid, :rlid, :lid, :eid, :pname, :url, :title, :area, :rooms, :ptid, :mkt, :tt, :fsa, :lsa)
+            RETURNING id
+        """)
+        query_price = text("""
+            INSERT INTO clean.price_history 
+            (listing_id, batch_id, price_sale_total, price_sale_per_m2, price_rent_monthly, seen_at)
+            VALUES 
+            (:lid, :bid, :pst, :psm, :prm, :seen)
+        """)
+        try:
+            with self.engine.begin() as conn:
+                res = conn.execute(query_listing, {
+                    "cid": listing.criteria_id, "rlid": listing.raw_listing_id,
+                    "lid": listing.location_id, "eid": listing.external_id, 
+                    "pname": listing.portal_name, "url": listing.listing_url, 
+                    "title": listing.title, "area": listing.area_m2, 
+                    "rooms": listing.rooms, "ptid": listing.property_type_id, 
+                    "mkt": listing.market, "tt": listing.transaction_type, 
+                    "fsa": listing.first_seen_at, "lsa": listing.last_seen_at
+                })
+                new_listing_id = res.fetchone()[0]
+                conn.execute(query_price, {
+                    "lid": new_listing_id,
+                    "bid": price_history.batch_id,
+                    "pst": price_history.price_sale_total,
+                    "psm": price_history.price_sale_per_m2,
+                    "prm": price_history.price_rent_monthly,
+                    "seen": price_history.seen_at
+                })
+                return new_listing_id
+        except Exception as e:
+            self.log_system_error(
+                error_source=dbmodels.ErrorSources.DATABASE,
+                module_name='insert_new_clean_listing',
+                error_message=str(e),
+                stack_trace=traceback.format_exc(),
+                context_data={"external_id": listing.external_id}
+            )
+            return None
+
+    def update_clean_listing(self, clean_listing_id: int, raw_listing_id: int, last_seen_at: datetime.datetime, price_history: dbmodels.PriceHistory) -> bool:
+        """
+            INSERTS a new price history record for an aleardy existing listing.  
+            Updates last_seen_at, raw_listing_id attributes. Also sets is_active to TRUE.  
+            Returns True on success, False on failure.
+        """
+        query_listing = text("""
+            UPDATE clean.listings 
+            SET last_seen_at = :seen, 
+                raw_listing_id = :rid,
+                is_active = TRUE 
+            WHERE id = :lid
+        """)
+        query_price = text("""
+            INSERT INTO clean.price_history 
+            (listing_id, batch_id, price_sale_total, price_sale_per_m2, price_rent_monthly, seen_at)
+            VALUES 
+            (:lid, :bid, :pst, :psm, :prm, :seen)
+        """)
+        try:
+            with self.engine.begin() as conn:
+                conn.execute(query_price, {
+                    "lid": clean_listing_id,
+                    "bid": price_history.batch_id,
+                    "pst": price_history.price_sale_total,
+                    "psm": price_history.price_sale_per_m2,
+                    "prm": price_history.price_rent_monthly,
+                    "seen": last_seen_at
+                })
+                conn.execute(query_listing, {"seen": last_seen_at, "rid": raw_listing_id, "lid": clean_listing_id})
+            return True
+        except Exception as e:
+            self.log_system_error(
+                error_source=dbmodels.ErrorSources.DATABASE,
+                module_name='update_clean_listing',
+                error_message=str(e),
+                stack_trace=traceback.format_exc(),
+                context_data={"clean_listing_id": clean_listing_id}
             )
             return False
+
+    def get_clean_listing_id(self, external_id: str, portal_name: str) -> int | None:
+        """
+            Checks if the clean listing already exists and returns its ID, or None if not found.  
+            Raises a DatabaseError exception on failure.
+        """
+        query = text("""
+            SELECT id 
+            FROM clean.listings 
+            WHERE external_id = :eid AND portal_name = :pname
+        """)
+        try:
+            with self.engine.connect() as conn:
+                result = conn.execute(query, {"eid": external_id, "pname": portal_name}).fetchone()
+                return result[0] if result else None
+        except Exception as e:
+            self.log_system_error(
+                error_source=dbmodels.ErrorSources.DATABASE,
+                module_name='get_clean_listing_id',
+                error_message=str(e),
+                stack_trace=traceback.format_exc(),
+                context_data={"external_id": external_id, "portal_name": portal_name}
+            )
+            raise dbexcepts.DatabaseError from e
+
+    def set_clean_listing_active_status(self):
+        pass
 
 
 # Test if a connection may be established

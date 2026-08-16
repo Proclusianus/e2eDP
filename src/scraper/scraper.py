@@ -6,6 +6,7 @@ import json
 import socket
 import random
 import traceback
+import datetime
 from dataclasses import dataclass, field
 
 
@@ -35,6 +36,7 @@ class ScrapedResultData:
 DB = DBManager()
 CID = 0
 DEBUG = False
+PORTAL = 'otodom'
 
 #############
 # FUNCTIONS #
@@ -70,7 +72,7 @@ def get_website_location_string(location: str, take_fallback: bool, page: Page) 
         input_selector = 'input[data-cy="search.form.location.button"]'
         page.wait_for_selector(input_selector, timeout=10000)
         loc_input = page.locator(input_selector)
-        loc_input.click()
+        loc_input.click(force=True)
         loc_input.fill("")
         time.sleep(1.0) # To make sure none of the first written letters are lost
         loc_input.type(location.replace('/', ' '), delay=100) # 100ms, pretend to be a human
@@ -103,12 +105,14 @@ def get_website_location_string(location: str, take_fallback: bool, page: Page) 
 
         if DEBUG: page.screenshot(path="debug_view2.png")
         if target_loc_url:
-            if DEBUG: print(f"Location found for: {location} - {target_loc_url}")
+            if DEBUG: print(f"Location found for: {location} - {target_loc_url}; Added to location mappings")
+            DB.create_location_mapping(DB.get_location_by_name(location).location_id, PORTAL, target_loc_url)
             return target_loc_url
         if len(suggestions) > 0 and take_fallback:
             fallback_id = suggestions[0].get_attribute("id").split(',')[0]
             if fallback_id:
                 if DEBUG: print(f"No fitting location found for: {location} - using fallback: {fallback_id}")
+                DB.create_location_mapping(DB.get_location_by_name(location).location_id, PORTAL, fallback_id)
                 return fallback_id
         if DEBUG: print(f"No locations found at all for: {location}")
         return None
@@ -118,7 +122,39 @@ def get_website_location_string(location: str, take_fallback: bool, page: Page) 
             page.screenshot(path="debug_view3.png")
         return None
 
+def test_obtained_string(loc_string: str, page: Page) -> bool:
+    test_url = f"https://www.otodom.pl/pl/wyniki/sprzedaz/mieszkanie/{loc_string}"
+    if DEBUG: print(f"testurl is {test_url}")
+    try:
+        response = page.goto(test_url, wait_until="domcontentloaded", timeout=20000)
+        if response.status == 404:
+            raise Exception("Status 404")
+
+        # Check for redirects
+        if "cala-polska" in page.url and "cala-polska" not in loc_string:
+            page.screenshot(path="redirect1.png")
+            raise Exception("Redirected 1")
+        if page.url.endswith(".pl/"):
+            page.screenshot(path="redirect2.png")
+            raise Exception("Redirected 2")
+        
+        if DEBUG: print("The DB location string works; skipping scraping location string")
+        return True
+    except Exception as e:
+        if DEBUG: print(f"The DB location string failed; removing location mapping & scraping location string : {e}")
+        return False
+
 def attempt_to_get_website_location_string(location: str, max_retries: int, page: Page) -> str | None:
+    # Check if we don't already have the locating string
+    location_id = DB.get_location_by_name(location).location_id
+    mapped_loc_string = DB.get_location_mapping_external_name(PORTAL, location_id)
+    if mapped_loc_string:
+        if DEBUG: print(f"Found location string in DB: {mapped_loc_string}")
+        if test_obtained_string(mapped_loc_string, page):
+            return mapped_loc_string
+        else:
+            DB.remove_location_mapping(location_id, PORTAL, mapped_loc_string)
+
     # First attempt to connect to the website...
     for attempt in range(1, max_retries + 1):  
         try:
@@ -235,7 +271,7 @@ def is_real_listing(item: dict) -> bool:
 
     return True
 
-def create_raw_listings_from_page(page_data: dict, batch_id: int, criteria_id: int, url: str) -> ScrapedResultData:
+def create_raw_listings_from_page(page_data: dict, batch_id: int, criteria_id: int, url: str, loc_url: str) -> ScrapedResultData:
     """Returns the amount of successfuly saved listings"""
     try:
         search_data = page_data.get('props', {}).get('pageProps', {}).get('data', {}).get('searchAds', {})
@@ -256,11 +292,12 @@ def create_raw_listings_from_page(page_data: dict, batch_id: int, criteria_id: i
         try:
             ext_id = str(item.get('id', 'unknown'))
             raw_listing = dbmodels.RawListing(
-                id=0, clean_listing_id=None, scraped_at=None, # unused now
+                id=0, scraped_at=None, # unused now
                 criteria_id=criteria_id, batch_id=batch_id,
-                portal_name="Otodom",
+                portal_name=PORTAL,
                 external_id=ext_id,
                 scraping_url=url,
+                location_url=loc_url,
                 raw_content=item,
                 http_status=200
             )
@@ -293,6 +330,7 @@ def scrape_for_id() -> int:
         return -1
 
     scraping_success_data: list[ScrapedResultData] = []
+    execution_logs: list[dbmodels.RawExecLog] = []
 
     max_pages_per_url: dbmodels.SystemSettingValues = DB.get_system_setting_values('max_pages_per_url')
     if DEBUG: print(f"max_pages_per_url setting_value={max_pages_per_url.setting_value}, is_enabled {max_pages_per_url.is_enabled}")
@@ -316,6 +354,9 @@ def scrape_for_id() -> int:
                 pages_amount = 1
                 while page_number <= pages_amount:
                     final_url = f"{t_url}page={page_number}"
+                    scraping_started_at = datetime.datetime.now(datetime.timezone.utc)
+                    current_status = dbmodels.LogStatus.SUCCESS
+                    error_msg = None
                     try:
                         page.goto(final_url, wait_until="domcontentloaded", timeout=15000)
                         time.sleep(random.uniform(1, 4))
@@ -323,6 +364,8 @@ def scrape_for_id() -> int:
                         time.sleep(random.uniform(1, 2))
                     except Exception as e:
                         if DEBUG: print(f"Entering page number {page_number} failed: {e}")
+                        current_status = dbmodels.LogStatus.FAILED
+                        error_msg = str(e)
                         DB.log_system_error(
                             error_source=dbmodels.ErrorSources.SCRAPER,
                             module_name='scrape_for_id;page.goto',
@@ -342,8 +385,22 @@ def scrape_for_id() -> int:
                             pages_amount = min(pages_amount, max_pages_per_url.setting_value)
                             if DEBUG: print(f"Limited amount of pages to {max_pages_per_url.setting_value}")
 
-                    scraping_success_data.append(create_raw_listings_from_page(page_data, batch_id, CID, final_url))
+                    scraping_result = create_raw_listings_from_page(page_data, batch_id, CID, final_url, location_string)
+                    if scraping_result.scrapped_successfuly != scraping_result.to_scrap_amount:
+                        current_status = dbmodels.LogStatus.WARNING
+                        error_msg = f"Scraped only {scraping_result.scrapped_successfuly} offers out of {scraping_result.to_scrap_amount}"
+                    scraping_success_data.append(scraping_result)
+
                     page_number += 1
+                    execution_logs.append(dbmodels.RawExecLog(
+                        id=0, target_display_name = "", # unused
+                        job_name="scraper.py",
+                        batch_id=batch_id,
+                        status=current_status,
+                        error_message=error_msg,
+                        started_at=scraping_started_at,
+                        finished_at=datetime.datetime.now(datetime.timezone.utc)
+                    ))
 
     successful = 0
     count = 0
@@ -392,3 +449,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     main()
+    # Gotta add execution_log support here
