@@ -74,6 +74,14 @@ CREATE TABLE IF NOT EXISTS "config"."global_rule_locations" (
   "location_id" integer REFERENCES "config"."locations"("id") ON DELETE RESTRICT ON UPDATE CASCADE,
   PRIMARY KEY ("global_rule_id", "location_id")
 );
+CREATE TABLE IF NOT EXISTS "config"."location_mappings" (
+  "id" SERIAL PRIMARY KEY,
+  "location_id" integer NOT NULL REFERENCES "config"."locations"("id") ON DELETE CASCADE,
+  "external_name" varchar(255) NOT NULL,
+  "portal_name" varchar(50) NOT NULL,
+  UNIQUE("external_name", "portal_name")
+);
+CREATE INDEX IF NOT EXISTS idx_loc_map_lookup ON "config"."location_mappings"("external_name", "portal_name");
 
 CREATE TABLE IF NOT EXISTS "config"."property_types" (
   "id" SERIAL PRIMARY KEY,
@@ -262,10 +270,10 @@ CREATE TABLE IF NOT EXISTS "raw"."listings" (
   "id" SERIAL PRIMARY KEY,
   "criteria_id" integer REFERENCES "config"."search_criteria"("id") ON DELETE SET NULL ON UPDATE CASCADE,
   "batch_id" integer REFERENCES "orchestration"."batches"("id") ON DELETE SET NULL ON UPDATE CASCADE,
-  "clean_listing_id" integer, -- is a FK! added after creating/updating a clean listing out of this one
   "portal_name" varchar(50) NOT NULL,
   "external_id" varchar(100) NOT NULL,
   "scraping_url" text NOT NULL,
+  "location_url" varchar(255),
   "raw_content" jsonb NOT NULL,
   "http_status" integer NOT NULL,
   "scraped_at" timestamp DEFAULT (now()) NOT NULL
@@ -292,6 +300,7 @@ CREATE INDEX IF NOT EXISTS idx_cleaning_logs_raw_id ON "clean"."execution_logs"(
 CREATE TABLE IF NOT EXISTS "clean"."listings" (
   "id" SERIAL PRIMARY KEY,
   "criteria_id" integer REFERENCES "config"."search_criteria"("id") ON DELETE SET NULL ON UPDATE CASCADE,
+  "raw_listing_id" integer REFERENCES "raw"."listings"("id") ON DELETE SET NULL ON UPDATE CASCADE,
   "location_id" integer NOT NULL REFERENCES "config"."locations"("id") ON DELETE RESTRICT ON UPDATE CASCADE,
   "external_id" varchar(100) UNIQUE NOT NULL,
   "portal_name" varchar(50) NOT NULL,
@@ -306,14 +315,8 @@ CREATE TABLE IF NOT EXISTS "clean"."listings" (
   "last_seen_at" timestamp DEFAULT (now()) NOT NULL,
   "is_active" boolean DEFAULT true NOT NULL
 );
-DO $$ BEGIN
-  --pg_constraint - internal system table which keeps records on PKs, FKs and other stuff
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_raw_listings_clean_id') THEN
-    ALTER TABLE "raw"."listings" ADD CONSTRAINT fk_raw_listings_clean_id
-    FOREIGN KEY ("clean_listing_id") REFERENCES "clean"."listings"("id") ON DELETE SET NULL ON UPDATE CASCADE;
-  END IF;
-END $$;
 CREATE INDEX IF NOT EXISTS idx_clean_listings_criteria_id ON "clean"."listings"("criteria_id");
+CREATE INDEX IF NOT EXISTS idx_clean_listings_raw_id ON "clean"."listings"("raw_listing_id");
 CREATE INDEX IF NOT EXISTS idx_clean_listings_external_id ON "clean"."listings"("external_id");
 
 CREATE TABLE IF NOT EXISTS "clean"."price_history" (

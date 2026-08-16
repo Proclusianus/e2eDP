@@ -28,3 +28,4 @@ Thumbs.db
 *.session.sql
 !config/*.json
 !config/*.yaml
+example_raw.txt
