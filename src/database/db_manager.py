@@ -3,6 +3,7 @@ import datetime
 import os
 import traceback
 import json
+from collections import defaultdict
 
 
 import pandas as pd
@@ -98,6 +99,22 @@ class DBManager:
                 error_message=str(e),
                 stack_trace=traceback.format_exc(),
                 context_data={"location_name": location_name}
+            )
+            return None
+
+    def get_location_lookup(self) -> dict[int, str] | None:
+        """Returns (location_id: location name) mapping, or None if failed."""
+        query = text("SELECT id, INITCAP(city_name) as city_name FROM config.locations")
+        try:
+            with self.engine.connect() as conn:
+                result = conn.execute(query)
+                return {row.id: row.city_name for row in result}
+        except Exception as e:
+            self.log_system_error(
+                error_source=dbmodels.ErrorSources.DATABASE,
+                module_name='get_location_lookup',
+                error_message=str(e),
+                stack_trace=traceback.format_exc()
             )
             return None
 
@@ -1643,6 +1660,46 @@ class DBManager:
             )
             return False
 
+    def insert_analytics_execution_logs_bulk(self, logs: list[dbmodels.AnalyticsExecLog]) -> bool:
+        """
+            Used to insert analytics execlogs coming from each listing in bulk to save DB resources.  
+            Returns True on success, False on failure.
+        """
+        if not logs: return True
+        query = text("""
+            INSERT INTO analytics.execution_logs 
+            (job_name, batch_id, clean_listing_id, batch_analysis_id, anomaly_analysis_id, 
+             global_rule_id, status, error_message, started_at, finished_at)
+            VALUES 
+            (:jn, :bid, :clid, :baid, :aaid, :grid, :st, :err, :sa, :fa)
+        """)
+        data = [{
+            "jn": log.job_name,
+            "bid": log.batch_id,
+            "clid": log.clean_listing_id,
+            "baid": log.batch_analysis_id,
+            "aaid": log.anomaly_analysis_id,
+            "grid": log.global_rule_id,
+            "st": log.status,
+            "err": log.error_message,
+            "sa": log.started_at,
+            "fa": log.finished_at
+        } for log in logs]
+        
+        try:
+            with self.engine.begin() as conn:
+                conn.execute(query, data)
+            return True
+        except Exception as e:
+            self.log_system_error(
+                error_source=dbmodels.ErrorSources.DATABASE,
+                module_name='insert_analytics_execution_logs_bulk',
+                error_message=str(e),
+                stack_trace=traceback.format_exc(),
+                context_data={"log_count": len(logs)}
+            )
+            return False
+
     #################################
     # ORCHESTRATION.BATCHES METHODS #
     #################################
@@ -1977,9 +2034,340 @@ class DBManager:
             )
             raise dbexcepts.DatabaseError from e
 
-    def set_clean_listing_active_status(self):
-        pass
+    def get_clean_listings_by_batch(self, batch_id: int) -> list[dbmodels.CleanListing]:
+        """
+            Returns a list of CleanListings by their batch_id.  
+            Returns an empty list if no elements found or on failure.
+        """
+        query = text("""
+            SELECT 
+                cl.id, cl.raw_listing_id, cl.criteria_id, cl.location_id, cl.external_id,
+                cl.portal_name, cl.listing_url, cl.title, cl.area_m2, cl.rooms,
+                cl.property_type_id, cl.market, cl.transaction_type,
+                cl.first_seen_at, cl.last_seen_at, cl.is_active
+            FROM clean.listings cl
+            JOIN clean.price_history ph ON cl.id = ph.listing_id
+            WHERE ph.batch_id = :bid
+        """)
+        try:
+            with self.engine.connect() as conn:
+                result = conn.execute(query, {"bid": batch_id})
+                return [dbmodels.CleanListing(
+                    id=r._mapping['id'], 
+                    raw_listing_id=r._mapping['raw_listing_id'],
+                    criteria_id=r._mapping['criteria_id'],
+                    location_id=r._mapping['location_id'],
+                    external_id=r._mapping['external_id'],
+                    portal_name=r._mapping['portal_name'],
+                    listing_url=r._mapping['listing_url'],
+                    title=r._mapping['title'],
+                    area_m2=r._mapping['area_m2'],
+                    rooms=r._mapping['rooms'],
+                    property_type_id=r._mapping['property_type_id'],
+                    market=r._mapping['market'],
+                    transaction_type=r._mapping['transaction_type'],
+                    first_seen_at=r._mapping['first_seen_at'],
+                    last_seen_at=r._mapping['last_seen_at'],
+                    is_active=r._mapping['is_active'],
+                ) for r in result]
+        except Exception as e:
+            self.log_system_error(
+                error_source=dbmodels.ErrorSources.DATABASE,
+                module_name='get_clean_listings_by_batch',
+                error_message=str(e),
+                stack_trace=traceback.format_exc(),
+                context_data={"batch_id": batch_id}
+            )
+            return []
 
+    def set_clean_listing_active_status(self, clean_listing_id: int, status: bool) -> bool:
+        """
+            Sets the is_active attribute for clean_listing_id.  
+            Returns True on success, False on failure.
+        """
+        query = text("""
+            UPDATE clean.listings
+            SET is_active = :s
+            WHERE id = :lid
+        """)
+        try:
+            with self.engine.begin() as conn:
+                conn.execute(query, {"s": status, "lid": clean_listing_id})
+            return True
+        except Exception as e:
+            self.log_system_error(
+                error_source=dbmodels.ErrorSources.DATABASE,
+                module_name='set_clean_listing_active_status',
+                error_message=str(e),
+                stack_trace=traceback.format_exc(),
+                context_data={"clean_listing_id": clean_listing_id, "new_status": status}
+            )
+            return False
+
+    def get_price_histories_for_batch(self, batch_id: int) -> dict[int, list[dbmodels.PriceHistory]]:
+        """Returns the price histories of clean listings in a given batch. Returns a dictionary {listing_id: list[PriceHistory]}"""
+        query = text("""
+            SELECT id, listing_id, batch_id, price_sale_total, price_sale_per_m2, price_rent_monthly, seen_at
+            FROM clean.price_history
+            WHERE listing_id IN (SELECT listing_id FROM clean.price_history WHERE batch_id = :bid)
+            ORDER BY listing_id, seen_at DESC;
+        """)
+        histories_map = defaultdict(list)
+        try:
+            with self.engine.connect() as conn:
+                result = conn.execute(query, {"bid": batch_id})
+                for row in result:
+                    r = row._mapping
+                    obj = dbmodels.PriceHistory(
+                        id=r['id'],
+                        listing_id=r['listing_id'],
+                        batch_id=r['batch_id'],
+                        price_sale_total=float(r['price_sale_total']) if r['price_sale_total'] is not None else None,
+                        price_sale_per_m2=float(r['price_sale_per_m2']) if r['price_sale_per_m2'] is not None else None,
+                        price_rent_monthly=float(r['price_rent_monthly']) if r['price_rent_monthly'] is not None else None,
+                        seen_at=r['seen_at']
+                    )
+                    histories_map[r['listing_id']].append(obj)
+            return dict(histories_map)
+        except Exception as e:
+            self.log_system_error(
+                error_source=dbmodels.ErrorSources.DATABASE,
+                module_name='get_price_histories_for_batch',
+                error_message=str(e),
+                context_data={"batch_id": batch_id}
+            )
+            return {}
+
+    ### ANALYTICS ###
+    def save_anomalies_bulk(self, anomalies: list[dbmodels.DetectedAnomaly]) -> bool:
+        """Saves detected anomalies in bulk. Returns True on success, False on failure."""
+        if not anomalies: return True
+        try:
+            with self.engine.begin() as conn:
+                # Deduplicate snapshots
+                unique_snapshots = {}
+                for a in anomalies:
+                    # (url, date) <- key to identify the listing and it's version
+                    snap_key = (a.listing_snapshot.listing_url, a.listing_snapshot.captured_at)
+                    if snap_key not in unique_snapshots:
+                        unique_snapshots[snap_key] = a.listing_snapshot
+
+                # Insert snapshots
+                snap_id_map = {} # (url, time) -> id, used when inserting detected anomalies
+                for key, snap in unique_snapshots.items():
+                    res = conn.execute(text("""
+                        INSERT INTO analytics.listing_snapshots 
+                        (listing_url, title, location_id, area_m2, price_type, price_total, price_per_m2, price_rent, captured_at)
+                        VALUES (:url, :title, :loc, :area, :ptype, :ptot, :pm2, :prent, :cap)
+                        RETURNING id
+                    """), {
+                        "url": snap.listing_url, "title": snap.title, "loc": snap.location_id,
+                        "area": snap.area_m2, "ptype": snap.price_type, "ptot": snap.price_total,
+                        "pm2": snap.price_per_m2, "prent": snap.price_rent, "cap": snap.captured_at
+                    })
+                    snap_id_map[key] = res.fetchone()[0]
+
+                # Prepare & insert anomalies
+                anomalies_data = []
+                for a in anomalies:
+                    snap_key = (a.listing_snapshot.listing_url, a.listing_snapshot.captured_at)
+                    snapshot_id = snap_id_map[snap_key]
+                    
+                    anomalies_data.append({
+                        "lid": a.listing_id,
+                        "sid": snapshot_id,
+                        "scope": a.scope,
+                        "cid": a.criteria_id,
+                        "grid": a.global_rule_id,
+                        "bid": a.batch_id,
+                        "aid": a.analysis_id,
+                        "det": json.dumps(a.trigger_details),
+                        "read": a.is_read,
+                        "dat": a.detected_at
+                    })
+                conn.execute(text("""
+                    INSERT INTO analytics.detected_anomalies 
+                    (listing_id, listing_snapshot_id, scope, criteria_id, global_rule_id, batch_id, analysis_id, trigger_details, is_read, detected_at)
+                    VALUES (:lid, :sid, :scope, :cid, :grid, :bid, :aid, :det, :read, :dat)
+                """), anomalies_data)
+            return True
+        except Exception as e:
+            self.log_system_error(
+                error_source=dbmodels.ErrorSources.DATABASE,
+                module_name='save_anomalies_bulk',
+                error_message=str(e),
+                stack_trace=traceback.format_exc()
+            )
+            return False
+
+    def insert_batch_metrics_bulk(self, metrics_list: list[dbmodels.BatchMetrics]) -> bool:
+        """Saves batch_metrics for the given batch. Returns True on success, False on failure."""
+        if not metrics_list: return True
+        query = text("""
+            INSERT INTO analytics.batch_metrics 
+            (criteria_id, batch_id, analysis_id, metrics, calculated_at)
+            VALUES 
+            (:criteria_id, :batch_id, :analysis_id, :metrics, :calculated_at)
+        """)
+        data = []
+        for m in metrics_list:
+            data.append({
+                "criteria_id": m.criteria_id,
+                "batch_id": m.batch_id,
+                "analysis_id": m.analysis_id,
+                "metrics": json.dumps(m.metrics), 
+                "calculated_at": m.calculated_at
+            })
+        try:
+            with self.engine.begin() as conn:
+                conn.execute(query, data)
+            return True
+        except Exception as e:
+            self.log_system_error(
+                error_source=dbmodels.ErrorSources.DATABASE,
+                module_name='insert_batch_metrics_bulk',
+                error_message=str(e),
+                stack_trace=traceback.format_exc(),
+                context_data={"metrics_count": len(metrics_list)}
+            )
+            return False
+
+    def get_supply_volume_history(self, criteria_id: int) -> pd.DataFrame | None:
+        """Selects the data required to show supply volume as a function of time. Returns a dataframes object, or None if failed."""
+        query = text("""
+            SELECT 
+                calculated_at,
+                metrics
+            FROM analytics.batch_metrics
+            WHERE criteria_id = :cid 
+            AND analysis_id = (SELECT id FROM config.batch_analysis_dictionary WHERE code = 'SUPPLY_VOLUME')
+            ORDER BY calculated_at ASC
+        """)
+
+        loc_lookup: dict[int, str] = self.get_location_lookup()
+        try:
+            with self.engine.connect() as conn:
+                result = conn.execute(query, {"cid": criteria_id})
+                flat_data = []
+                for row in result:
+                    calc_at = row.calculated_at
+                    location_data = row.metrics.get('by_location', {})
+                    for loc_id_str, details in location_data.items():
+                        loc_id = int(loc_id_str)
+                        city_name = loc_lookup.get(loc_id, f"Loc: {loc_id}")
+                        
+                        flat_data.append({
+                            "time": calc_at,
+                            "location_name": int(loc_id),
+                            "type": "Sale",
+                            "volume": details['sale_count']
+                        })
+                        flat_data.append({
+                            "time": calc_at,
+                            "location_name": int(loc_id),
+                            "type": "Rent",
+                            "volume": details['rent_count']
+                        })
+                return pd.DataFrame(flat_data)
+        except Exception as e:
+            self.log_system_error(
+                error_source=dbmodels.ErrorSources.DATABASE,
+                module_name='get_supply_volume_history',
+                error_message=str(e),
+                stack_trace=traceback.format_exc(),
+                context_data={"criteria_id": criteria_id}
+            )
+            return None
+
+    def get_price_dynamics_history(self, criteria_id: int) -> pd.DataFrame | None:
+        """Selects the data required to show price dynamics as a function of time. Returns a dataframes object, or None if failed. """
+        loc_lookup = self.get_location_lookup()
+        query = text("""
+            SELECT 
+                bm.calculated_at,
+                bm.metrics
+            FROM analytics.batch_metrics bm
+            JOIN config.batch_analysis_dictionary bad ON bm.analysis_id = bad.id
+            WHERE bm.criteria_id = :cid 
+            AND bad.code = 'PRICE_DYNAMICS'
+            ORDER BY bm.calculated_at ASC;
+        """)
+        
+        flat_data = []
+        try:
+            with self.engine.connect() as conn:
+                result = conn.execute(query, {"cid": criteria_id})
+                for row in result:
+                    calc_at = row.calculated_at
+                    location_data = row.metrics.get('by_location', {})
+                    for loc_id_str, types in location_data.items():
+                        loc_id = int(loc_id_str)
+                        city_name = loc_lookup.get(loc_id, f"Loc: {loc_id}")
+                        for trans_type, stats in types.items():
+                            if stats.get('avg') is None:
+                                continue
+                            flat_data.append({
+                                "timestamp": calc_at,
+                                "city": city_name,
+                                "transaction_type": trans_type.capitalize(), # 'Sale' / 'Rent'
+                                "average": float(stats['avg']),
+                                "median": float(stats['median']),
+                                "stddev": float(stats['std_dev']) if stats.get('std_dev') else 0.0
+                            })
+            return pd.DataFrame(flat_data)
+        except Exception as e:
+            self.log_system_error(
+                error_source='DATABASE',
+                module_name='get_price_dynamics_history',
+                error_message=str(e),
+                context_data={"criteria_id": criteria_id}
+            )
+            return None
+
+    def get_price_distribution_latest(self, criteria_id: int) -> pd.DataFrame | None:
+        """Gets the lastest price distribution data. Returns a DataFrame object or None if failed."""
+        loc_lookup = self.get_location_lookup()
+        query = text("""
+            SELECT 
+                bm.metrics,
+                bm.calculated_at
+            FROM analytics.batch_metrics bm
+            JOIN config.batch_analysis_dictionary bad ON bm.analysis_id = bad.id
+            WHERE bm.criteria_id = :cid 
+            AND bad.code = 'DISTRIBUTION_CALC'
+            ORDER BY bm.calculated_at DESC 
+            LIMIT 1;
+        """)
+
+        flat_data = []
+        try:
+            with self.engine.connect() as conn:
+                result = conn.execute(query, {"cid": criteria_id}).fetchone()
+                if not result: return None
+                metrics = result.metrics
+                location_data = metrics.get('by_location', {})
+                for loc_id_str, types in location_data.items():
+                    loc_id = int(loc_id_str)
+                    city_name = loc_lookup.get(loc_id, f"Loc {loc_id}")
+                    for trans_type, dist_details in types.items():
+                        bins = dist_details.get('bins', {})
+                        for price_range, count in bins.items():
+                            flat_data.append({
+                                "city": city_name,
+                                "transaction_type": trans_type.capitalize(),
+                                "price_range": price_range,
+                                "offer_count": int(count),
+                                "calculation_date": result.calculated_at
+                            })
+            return pd.DataFrame(flat_data)
+        except Exception as e:
+            self.log_system_error(
+                error_source='DATABASE',
+                module_name='get_price_distribution_latest',
+                error_message=str(e),
+                context_data={"criteria_id": criteria_id}
+            )
+            return None
 
 # Test if a connection may be established
 if __name__ == "__main__":

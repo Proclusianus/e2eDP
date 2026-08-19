@@ -73,6 +73,14 @@ class BatchStatus(str, Enum):
     PARTIAL_RUNNING = "PARTIAL_RUNNING" #if some fail during raw/clean stages
     FAILED = "FAILED"
 
+class ListingPriceType(str, Enum):
+    RENT = "RENT"
+    SALE = "SALE"
+
+class DetectedAnomaliesScope(str, Enum):
+    BATCH = "BATCH"
+    GLOBAL = "GLOBAL"
+
 ##################
 # SEARCH TARGETS #
 ##################
@@ -254,3 +262,39 @@ class CleanListing:
     first_seen_at: datetime
     last_seen_at: datetime
     is_active: bool
+
+@dataclass(frozen=True)
+class ListingSnapshot:
+    id: int
+    listing_url: str
+    title: str | None
+    location_id: int
+    area_m2: float | None
+    price_type: ListingPriceType
+    price_total: float | None
+    price_per_m2: float | None
+    price_rent: float | None
+    captured_at: datetime
+
+@dataclass(frozen=True)
+class DetectedAnomaly:
+    id: int
+    listing_id: int | None
+    listing_snapshot: ListingSnapshot
+    scope: DetectedAnomaliesScope
+    criteria_id: int | None
+    global_rule_id: int | None
+    batch_id: int | None
+    analysis_id: int
+    trigger_details: dict
+    is_read: bool
+    detected_at: datetime
+
+@dataclass(frozen=True)
+class BatchMetrics:
+    id: int
+    criteria_id: int | None
+    batch_id: int | None
+    analysis_id: int
+    metrics: dict
+    calculated_at: datetime

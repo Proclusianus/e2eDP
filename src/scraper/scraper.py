@@ -419,7 +419,7 @@ def scrape_for_id() -> int:
 def main() -> int:
     """
         Starts the main scrapping process.  
-        Returns int of the created batch, or -1 if the batch failed (FAILED) or collected no data (EMPTY).
+        Prints id of the created batch, or nothing if the batch failed (FAILED) or collected no data (EMPTY).
     """
     parser = argparse.ArgumentParser()
     parser.add_argument(

@@ -6,3 +6,4 @@ psycopg2-binary
 playwright
 python-dotenv
 streamlit
+numpy

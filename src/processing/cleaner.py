@@ -2,6 +2,7 @@ import argparse
 import sys
 import os
 import datetime
+import traceback
 from dataclasses import dataclass, field
 from typing import Literal
 
@@ -176,7 +177,7 @@ def create_price_history(extracted: ExtractedData) -> dbmodels.PriceHistory:
 def clean_batch() -> bool:
     """
         Cleans the collected batch records.  
-        Returns int of the processed batch, or -1 on failure?
+        Returns True on success, False on failure.
     """
     batch: dbmodels.BatchData = DB.get_batch(BID)
     if batch is None:
@@ -242,7 +243,7 @@ def clean_batch() -> bool:
 def main():
     """
         Starts the cleaner for the given batch id.  
-        Returns int of the processed batch, or -1 if (when)?
+        Prints the id of the processed batch, or nothing on failure
     """
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -261,7 +262,20 @@ def main():
     DEBUG = args.debug
 
     if DEBUG: print(f"Cleaning begins for batch_id: {BID}")
-    success = clean_batch()
+    try:
+        success = clean_batch()
+    except Exception as e:
+        if DEBUG: print(f"Analysis for batch_id: {BID} failed: {str(e)}")
+        DB.set_batch_status(BID, dbmodels.BatchStatus.FAILED)
+        DB.log_system_error(
+            error_source=dbmodels.ErrorSources.CLEANER,
+            module_name="cleaner.clean_batch",
+            error_message=str(e),
+            stack_trace=traceback.format_exc(),
+            context_data={"batch_id": BID}
+        )
+        sys.exit(2)
+        
     if success:
         if DEBUG: print(f"Cleaning for batch_id: {BID} successful")
         print(BID) # Input for analyzer.py
