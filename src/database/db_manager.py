@@ -2258,13 +2258,13 @@ class DBManager:
                         
                         flat_data.append({
                             "time": calc_at,
-                            "location_name": int(loc_id),
+                            "location_name": city_name,
                             "type": "Sale",
                             "volume": details['sale_count']
                         })
                         flat_data.append({
                             "time": calc_at,
-                            "location_name": int(loc_id),
+                            "location_name": city_name,
                             "type": "Rent",
                             "volume": details['rent_count']
                         })
@@ -2368,6 +2368,67 @@ class DBManager:
                 context_data={"criteria_id": criteria_id}
             )
             return None
+
+    def get_anomalies_by_type(self, batch_id: int, anomaly_analysis_key: str) -> list[dbmodels.DetectedAnomaly]:
+        """
+            Returns all detected anomalies of anomaly analysis type given by anomaly_analysis_key within a batch given by batch_id.
+            Returns a list of DetectedAnomaly objects on success, or an empty one on failure.
+        """
+        query = text("""
+            SELECT 
+                -- Detected anomaly data
+                da.id as anomaly_id, da.listing_id, da.scope, da.criteria_id, da.global_rule_id,
+                da.batch_id, da.analysis_id, da.trigger_details, da.is_read, da.detected_at,
+                -- Snapshot data
+                ls.id as snapshot_id, ls.listing_url, ls.title, ls.location_id, ls.area_m2,
+                ls.price_type, ls.price_total, ls.price_per_m2, ls.price_rent, ls.captured_at
+            FROM analytics.detected_anomalies da
+            JOIN analytics.listing_snapshots ls ON da.listing_snapshot_id = ls.id
+            JOIN config.anomaly_analysis_dictionary ad ON da.analysis_id = ad.id
+            WHERE da.batch_id = :bid AND ad.code = :code
+            ORDER BY da.detected_at DESC;
+        """)
+
+        anomalies: list[dbmodels.DetectedAnomaly] = []
+        try:
+            with self.engine.connect() as conn:
+                result = conn.execute(query, {"bid": batch_id, "code": anomaly_analysis_key})
+                for row in result:
+                    r = row._mapping
+                    snapshot = dbmodels.ListingSnapshot(
+                        id=r['snapshot_id'],
+                        listing_url=r['listing_url'],
+                        title=r['title'],
+                        location_id=r['location_id'],
+                        area_m2=float(r['area_m2']) if r['area_m2'] else None,
+                        price_type=r['price_type'],
+                        price_total=float(r['price_total']) if r['price_total'] is not None else None,
+                        price_per_m2=float(r['price_per_m2']) if r['price_per_m2'] is not None else None,
+                        price_rent=float(r['price_rent']) if r['price_rent'] is not None else None,
+                        captured_at=r['captured_at']
+                    )
+                    anomalies.append(dbmodels.DetectedAnomaly(
+                        id=r['anomaly_id'],
+                        listing_id=r['listing_id'],
+                        listing_snapshot=snapshot,
+                        scope=r['scope'],
+                        criteria_id=r['criteria_id'],
+                        global_rule_id=r['global_rule_id'],
+                        batch_id=r['batch_id'],
+                        analysis_id=r['analysis_id'],
+                        trigger_details=r['trigger_details'],
+                        is_read=r['is_read'],
+                        detected_at=r['detected_at']
+                    ))
+            return anomalies
+        except Exception as e:
+            self.log_system_error(
+                error_source=dbmodels.ErrorSources.DATABASE,
+                module_name='get_anomalies_by_type',
+                error_message=str(e),
+                context_data={"batch_id": batch_id, "code": anomaly_analysis_key}
+            )
+            return []
 
 # Test if a connection may be established
 if __name__ == "__main__":

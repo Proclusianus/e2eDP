@@ -7,3 +7,6 @@ playwright
 python-dotenv
 streamlit
 numpy
+matplotlib
+fpdf2
+Pillow
