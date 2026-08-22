@@ -11,75 +11,25 @@ from database.db_manager import DBManager
 from database.models import LogStatus, TimeUnit, SearchTargetType, SearchTarget, RawExecLog, CleanExecLog, AnalyticsExecLog, AnomalyAnalysis, BatchAnalysis
 from database.exceptions import DatabaseError
 
-def get_mock_logs():
-    now = datetime.now()
-    
-    return [
-        # Raw
-        RawExecLog(
-            id=1, target_display_name="Kraków Sale [ACTIVE]", job_name="scraper.py",
-            batch_id="101", status="SUCCESS", error_message=None,
-            started_at=now - timedelta(minutes=60), finished_at=now - timedelta(minutes=58)
-        ),
-        RawExecLog(
-            id=2, target_display_name="Warszawa Rent [ARCHIVED]", job_name="scraper.py",
-            batch_id="102", status="FAILED", error_message="403 Forbidden: Cloudflare anti-bot triggered",
-            started_at=now - timedelta(minutes=50), finished_at=now - timedelta(minutes=49)
-        ),
-        RawExecLog(
-            id=3, target_display_name="Gdańsk Sale [PAUSED]", job_name="scraper.py",
-            batch_id="103", status="RUNNING", error_message=None,
-            started_at=now - timedelta(minutes=5), finished_at=None
-        ),
 
-        # Clean
-        CleanExecLog(
-            id=4, target_display_name="Kraków Sale [ACTIVE]", job_name="cleaner.py",
-            raw_listing_id=550, status="SUCCESS", error_message=None,
-            started_at=now - timedelta(minutes=55), finished_at=now - timedelta(minutes=54)
-        ),
-        CleanExecLog(
-            id=5, target_display_name="Łódź Sale [ACTIVE]", job_name="cleaner.py",
-            raw_listing_id=551, status="WARNING", error_message="Missing 'rooms' field, calculated with NULL",
-            started_at=now - timedelta(minutes=45), finished_at=now - timedelta(minutes=44)
-        ),
-
-        # Analytics
-        AnalyticsExecLog(
-            id=6, target_display_name="Kraków Sale [ACTIVE]", job_name="batch_analyzer.py",
-            batch_id=101, clean_listing_id=None, batch_analysis_id=1, anomaly_analysis_id=None,
-            global_rule_id=None, status="SUCCESS", error_message=None,
-            started_at=now - timedelta(minutes=40), finished_at=now - timedelta(minutes=39)
-        ),
-        AnalyticsExecLog(
-            id=7, target_display_name="Kraków Sale [ACTIVE]", job_name="anomaly_detector.py",
-            batch_id=101, clean_listing_id=200, batch_analysis_id=None, anomaly_analysis_id=2,
-            global_rule_id=None, status="SUCCESS", error_message=None,
-            started_at=now - timedelta(minutes=38), finished_at=now - timedelta(minutes=37)
-        ),
-        AnalyticsExecLog(
-            id=8, target_display_name="Cheap Warsaw Rule [GLOBAL]", job_name="global_notifier.py",
-            batch_id=101, clean_listing_id=205, batch_analysis_id=None, anomaly_analysis_id=3,
-            global_rule_id=2, status="FAILED", error_message="SMTP Connection Timeout: Could not send email",
-            started_at=now - timedelta(minutes=30), finished_at=now - timedelta(minutes=25)
-        ),
-        AnalyticsExecLog(
-            id=9, target_display_name="Market Trends", job_name="trend_calculator.py",
-            batch_id=105, clean_listing_id=None, batch_analysis_id=2, anomaly_analysis_id=None,
-            global_rule_id=None, status="SUCCESS", error_message=None,
-            started_at=now - timedelta(minutes=20), finished_at=now - timedelta(minutes=19)
-        ),
-        AnalyticsExecLog(
-            id=10, target_display_name="Wrocław Sale [ACTIVE]", job_name="cleaner.py",
-            batch_id=110, clean_listing_id=300, batch_analysis_id=None, anomaly_analysis_id=1,
-            global_rule_id=None, status="SUCCESS", error_message=None,
-            started_at=now - timedelta(minutes=10), finished_at=now - timedelta(minutes=9)
-        )
-    ]
-
-#
-# PRZETESTOWAĆ FUNKCJE DBMANAGERA JAK BĘDĄ LOGI
-#
+### A small trick to persist widget values between page switching - when widgets are hidden they remove their session_state data
+widget_names = {'logs_sc_gnr_search_all', 'logs_showing_soft_deleted', 'logs_sc_gnr_select', 'logs_types_select', 
+                'logs_completion_status', 'logs_time_amount', 'logs_time_unit', 'logs_sortby', 'logs_page_limit_amount'}
+if "logs_first_page_open_in_session" in st.session_state: # Page must've been loaded before...
+    if 'logs_page_change_checker' not in st.session_state: # Page is being opened again...
+        for n in widget_names:
+            st.session_state[f"{n}"] = st.session_state[f"{n}_store"]
+    else: # User is on-page...
+        for k, v in st.session_state.items():
+            if k in widget_names:
+                st.session_state[f"{k}_store"] = v
+# Invisible element - used to check if user enters this page from another
+with st.container():
+    st.markdown(
+        f"""<style>div[data-testid="stVerticalBlock"] > div:has(input[aria-label="logs_page_change_checker"]) {{display: none;}}</style>""",
+        unsafe_allow_html=True,
+    )
+    st.checkbox('logs_page_change_checker', key='logs_page_change_checker', label_visibility="collapsed")
 
 #############
 # FUNCTIONS #
@@ -388,7 +338,6 @@ with col5_limit:
 st.subheader("Execution Logs List:")
 pg_number = st.selectbox("Page:", key="logs_page_number", on_change=change_page_callback, options=get_pages_number_list(), width=80, disabled=st.session_state.get('logs_data', []) == [])
 with st.container(border=True):
-    st.session_state.logs_data = get_mock_logs()
     if not st.session_state.logs_data:
         st.info("📂 No execution logs found for the selected filters.")
         st.caption("Try adjusting the time range or status filters to see more results.")

@@ -8,6 +8,25 @@ import streamlit as st
 from database.models import AppSystemError, ErrorSources
 from database.db_manager import DBManager
 
+
+### A small trick to persist widget values between page switching - when widgets are hidden they remove their session_state data
+widget_names = {'sys_errors_page_limit_amount', 'sys_errors_page_number', 'sys_errors_solve_status'}
+if "syserr_first_page_open_in_session" in st.session_state: # Page must've been loaded before...
+    if 'sys_errors_page_change_checker' not in st.session_state: # Page is being opened again...
+        for n in widget_names:
+            st.session_state[f"{n}"] = st.session_state[f"{n}_store"]
+    else: # User is on-page...
+        for k, v in st.session_state.items():
+            if k in widget_names:
+                st.session_state[f"{k}_store"] = v
+# Invisible element - used to check if user enters this page from another
+with st.container():
+    st.markdown(
+        f"""<style>div[data-testid="stVerticalBlock"] > div:has(input[aria-label="sys_errors_page_change_checker"]) {{display: none;}}</style>""",
+        unsafe_allow_html=True,
+    )
+    st.checkbox('sys_errors_page_change_checker', key='sys_errors_page_change_checker', label_visibility="collapsed")
+
 #############
 # FUNCTIONS #
 #############

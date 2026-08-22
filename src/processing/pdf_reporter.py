@@ -56,6 +56,8 @@ class PDFReporter:
             "location_avg_price": "Market Avg.",
             "diff_percent": "Below Avg (%)"
         }
+        self.batch_analyses_definitions: list[dbmodels.BatchAnalysis] = self.db.get_batch_analysis_definitions()
+        self.anomaly_analyses_definitions: list[dbmodels.AnomalyAnalysis] = self.db.get_anomaly_analysis_definitions()
 
         # Load font
         BASE_DIR = Path(__file__).resolve().parent.parent # to src/
@@ -115,11 +117,54 @@ class PDFReporter:
 
     def _add_criteria_info(self, criteria: dbmodels.SearchCriteria):
         self.pdf.set_font("DejaVu", 'B', 14)
-        self.pdf.cell(0, 10, "Search Criteria", new_x="LMARGIN", new_y="NEXT")
-        self.pdf.set_font("DejaVu", size=10)
-        self.pdf.cell(0, 7, f"Transaction: {criteria.transaction_type} | Market: {criteria.market_type}", new_x="LMARGIN", new_y="NEXT")
-        self.pdf.cell(0, 7, f"Price range: {criteria.min_price} - {criteria.max_price} PLN", new_x="LMARGIN", new_y="NEXT")
-        self.pdf.ln(5)
+        self.pdf.set_fill_color(240, 240, 240)
+        self.pdf.cell(0, 10, f"Search Criteria: {criteria.target_name}", fill=True, new_x="LMARGIN", new_y="NEXT", border='B')
+        
+        self.pdf.ln(2)
+        self.pdf.set_font("DejaVu", 'I', 10)
+        desc = criteria.description if criteria.description else "No description provided."
+        self.pdf.multi_cell(0, 7, f"Notes: {desc}", new_x="LMARGIN", new_y="NEXT")
+        self.pdf.ln(2)
+
+        self.pdf.set_font("DejaVu", 'B', 11)
+        self.pdf.cell(0, 8, "Market Filters:", new_x="LMARGIN", new_y="NEXT")
+        self.pdf.set_font("DejaVu", '', 10)
+    
+        self.pdf.cell(0, 7, f"• Transaction: {criteria.transaction_type.upper()} | Market: {criteria.market_type.upper()}", new_x="LMARGIN", new_y="NEXT")
+        price_text = f"• Price Range: {criteria.min_price:,.0f} - {criteria.max_price:,.0f} PLN"
+        area_text = f"Area Range: {criteria.min_area} - {criteria.max_area} m²"
+        self.pdf.cell(0, 7, f"{price_text} | {area_text}", new_x="LMARGIN", new_y="NEXT")
+
+        self.pdf.ln(2)
+        self.pdf.set_font("DejaVu", 'B', 11)
+        self.pdf.cell(0, 8, "Scope & Requirements:", new_x="LMARGIN", new_y="NEXT")
+        self.pdf.set_font("DejaVu", '', 10)
+
+        cities_str = ", ".join(criteria.cities) if criteria.cities else "All Cities"
+        self.pdf.multi_cell(0, 7, f"• Target Cities: {cities_str}", new_x="LMARGIN", new_y="NEXT")
+
+        prop_types = ", ".join([p.type_name for p in criteria.property_types])
+        rooms = ", ".join([r.room_label for r in criteria.rooms])
+        self.pdf.multi_cell(0, 7, f"• Property Types: {prop_types} | Room Counts: {rooms}", new_x="LMARGIN", new_y="NEXT")
+
+        self.pdf.ln(2)
+        self.pdf.set_font("DejaVu", 'B', 11)
+        self.pdf.cell(0, 8, "Activated Analytics:", new_x="LMARGIN", new_y="NEXT")
+        self.pdf.set_font("DejaVu", '', 10)
+
+        batch_an_names = {ba.id: ba.name_en for ba in self.batch_analyses_definitions}
+        ba_collected_names = []
+        for ba in criteria.batch_analyses:
+            ba_collected_names.append(batch_an_names.get(ba.analysis_id, ""))
+        self.pdf.cell(0, 7, f"• Batch Trends (Macro): {', '.join(ba_collected_names)}", new_x="LMARGIN", new_y="NEXT")
+
+        anomaly_an_names = {an.id: an.name_en for an in self.anomaly_analyses_definitions}
+        an_collected_names = []
+        for an in criteria.anomaly_analyses:
+            an_collected_names.append(anomaly_an_names.get(an.analysis_id, ""))
+        self.pdf.cell(0, 7, f"• Anomaly Checks (Micro): {', '.join(an_collected_names)}", new_x="LMARGIN", new_y="NEXT")
+
+        self.pdf.ln(10)
 
     def _save_plt_to_buf(self):
         buf = io.BytesIO()
@@ -208,7 +253,7 @@ class PDFReporter:
         plt.title("Price Dynamics")
         plt.ylabel("Price (PLN)")
         
-        plt.legend(loc='upper center', bbox_to_anchor=(0.5, -0.25), ncol=3, fontsize=8, frameon=False)
+        plt.legend(loc='upper center', bbox_to_anchor=(0.5, -0.15), ncol=3, fontsize=8, frameon=False)
         plt.grid(True, alpha=0.2, linestyle='--')
         plt.tight_layout()
         
@@ -259,10 +304,16 @@ class PDFReporter:
             return
         
         if data.metrics_SUPPLY_VOLUME is not None and not data.metrics_SUPPLY_VOLUME.empty:
+            img_buf = self._plot_supply_volume(data.metrics_SUPPLY_VOLUME, data.criteria.transaction_type)
+            rendered_height = self._find_plot_height(img_buf)
+            space_needed = 10 + 2 + rendered_height + 5
+            if self.pdf.get_y() + space_needed > (self.pdf.h - 20):
+                self.pdf.add_page()
+
             self.pdf.set_font("DejaVu", 'B', 12)
             self.pdf.cell(0, 10, "Supply Volume Trends", new_x="LMARGIN", new_y="NEXT")
-            
-            img_buf = self._plot_supply_volume(data.metrics_SUPPLY_VOLUME, data.criteria.transaction_type)
+            self.pdf.ln(2)
+            img_buf.seek(0)
             self.pdf.image(img_buf, x=15, w=180)
             self.pdf.ln(5)
         if data.metrics_PRICE_DYNAMICS is not None and not data.metrics_PRICE_DYNAMICS.empty:
@@ -472,9 +523,9 @@ class PDFReporter:
         self._add_metrics_section(data)
         self._add_anomalies_section(data)
         self._add_clean_listings_section(data)
+        return bytes(self.pdf.output())
 
-
-if __name__ == "__main__":
-    a = PDFReporter()
-    a.generate_report(26)
-    a.pdf.output("test_report.pdf")
+#if __name__ == "__main__":
+#    a = PDFReporter()
+#    a.generate_report(26)
+#    a.pdf.output("test_report.pdf")

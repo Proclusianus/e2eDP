@@ -757,6 +757,35 @@ class DBManager:
         """
         return self._get_active_count("search_criteria", only_active)
 
+    def get_criteria_id_name_mapping(self) -> dict[int, str]:
+        """Returns a dictionry of criteria_id: criteria_name. On failure/no sc returns an empty dict"""
+        query = text("""
+            SELECT id, target_name, is_active, is_soft_deleted 
+            FROM config.search_criteria
+        """)
+        
+        mapping = {}
+        try:
+            with self.engine.connect() as conn:
+                result = conn.execute(query)
+                for row in result:
+                    r = row._mapping
+                    name = r['target_name']
+                    if r['is_soft_deleted']:
+                        name += " [ARCHIVED]"
+                    elif not r['is_active']:
+                        name += " [PAUSED]"
+                    mapping[r['id']] = name
+            return mapping
+        except Exception as e:
+            self.log_system_error(
+                error_source=dbmodels.ErrorSources.DATABASE,
+                module_name='get_criteria_id_name_mapping',
+                error_message=str(e),
+                stack_trace=traceback.format_exc()
+            )
+            return {}
+
     ########################
     # GLOBAL NOTIFICATIONS #
     ########################
@@ -1331,31 +1360,31 @@ class DBManager:
                          amount: int, select_inactive: bool) -> str:
         ### GETTING ALL TABLE DATA ###
         # Common columns in all execution log tables
-        base_cols = "l.id, '{layer}', l.job_name, l.status, l.error_message, l.started_at, l.finished_at"
+        base_cols = f"l.id, '{schema.upper()}' AS layer, l.job_name, l.status, l.error_message, l.started_at, l.finished_at"
         sc_display_name = """
-            sc.target_name || CASE 
+            (sc.target_name || CASE 
                 WHEN sc.is_soft_deleted THEN ' [ARCHIVED]' 
                 WHEN NOT sc.is_active THEN ' [PAUSED]' 
                 ELSE '' 
-            END
+            END)
         """
         gnr_display_name = """
-            gnr.rule_name || CASE 
+            (gnr.rule_name || CASE 
                 WHEN gnr.is_soft_deleted THEN ' [ARCHIVED]' 
                 WHEN NOT gnr.is_active THEN ' [PAUSED]' 
                 ELSE '' 
-            END
+            END)
         """
         
         if schema == 'raw':
-            cols = f"{base_cols.format(layer='RAW')}, l.batch_id, NULL::INTEGER, NULL::INTEGER, NULL::INTEGER, NULL::INTEGER, NULL::INTEGER, {sc_display_name}"
+            cols = f"{base_cols}, l.batch_id, NULL::INTEGER AS raw_listing_id, NULL::INTEGER AS clean_listing_id, NULL::INTEGER AS batch_analysis_id, NULL::INTEGER AS anomaly_analysis_id, NULL::INTEGER AS global_rule_id, {sc_display_name} AS target_display_name"
             joins = """
                 JOIN orchestration.batches b ON l.batch_id = b.id
                 JOIN config.search_criteria sc ON b.criteria_id = sc.id
             """
         elif schema == 'clean':
             # SC NAME PATH: Clean Log -> Raw Listing -> Batch -> Criteria
-            cols = f"{base_cols.format(layer='CLEAN')}, rl.batch_id, l.raw_listing_id, NULL::INTEGER, NULL::INTEGER, NULL::INTEGER, NULL::INTEGER, {sc_display_name}"
+            cols = f"{base_cols}, rl.batch_id, l.raw_listing_id, NULL::INTEGER AS clean_listing_id, NULL::INTEGER AS batch_analysis_id, NULL::INTEGER AS anomaly_analysis_id, NULL::INTEGER AS global_rule_id, {sc_display_name} AS target_display_name"
             joins = """
                 JOIN raw.listings rl ON l.raw_listing_id = rl.id
                 JOIN orchestration.batches b ON rl.batch_id = b.id
@@ -1364,9 +1393,9 @@ class DBManager:
         elif schema == 'analytics':
             # SC NAME PATH: Analytics Log -> Batch -> Criteria
             # GNR NAME PATH: Analytics Log -> GNR
-            cols = f"""{base_cols.format(layer='ANALYTICS')}, l.batch_id, NULL::INTEGER, l.clean_listing_id, 
+            cols = f"""{base_cols}, l.batch_id, NULL::INTEGER AS raw_listing_id, l.clean_listing_id, 
                     l.batch_analysis_id, l.anomaly_analysis_id, l.global_rule_id,
-                    COALESCE({sc_display_name}, {gnr_display_name})"""
+                    COALESCE({sc_display_name}, {gnr_display_name}) AS target_display_name"""
             joins = """
                 LEFT JOIN orchestration.batches b ON l.batch_id = b.id
                 LEFT JOIN config.search_criteria sc ON b.criteria_id = sc.id
@@ -1782,6 +1811,106 @@ class DBManager:
                 context_data={"batch_id": batch_id, "datetime": now.isoformat()}
             )
             return False
+
+    def get_batches_count(self) -> int:
+        """Returns the amount of batches in the database or -1 on failure"""
+        query = text("SELECT count(*) FROM orchestration.batches")
+        try:
+            with self.engine.connect() as conn:
+                result = conn.execute(query).scalar()
+                return int(result) if result else -1
+        except Exception as e:
+            self.log_system_error(
+                error_source=dbmodels.ErrorSources.DATABASE,
+                module_name='get_batches_count',
+                error_message=str(e),
+                stack_trace=traceback.format_exc()
+            )
+            return -1
+
+    def get_all_batches_paged(self, search_criteria_names: list[str], limit_records: int, pg_number: int,
+        unit_of_time: dbmodels.TimeUnit, time_amount: int, sort_by: str, select_inactive: bool) -> tuple[int, list[dbmodels.BatchData]]:
+        """
+            Parameters  
+            ----------
+            **search_criteria_names** list[str]  
+            List of search criteria names which will be used to search for the related batches. If [], all names will be accpeted.  
+            **limit_records** int  
+            Amount records to select.  
+            **pg_number**  
+            Which page should be selected.  
+            **units_of_time** models.TimeUnit  
+            Selected unit of time defined in models.TimeUnit; If set to ALL_TIME, all created_at will be accepted and time_amount is ignored.  
+            **time_amount** int  
+            Amount of time units.  
+            **sort_by** str  
+            How to sort the resulting list - available options "newest", "oldest", "execution_time".    
+            **select_inactive** bool  
+            If true include inactive search criteria's batches in the resulting list.  
+
+            Returns
+            -------
+            A list of batches list[dbmodels.BatchData], with a number of total records found on success,  
+            (-1, []) on failure.
+        """
+        
+        offset = (pg_number - 1) * limit_records # pagination
+        # Filters
+        where_clauses = ["1=1"]
+        valid_statuses = (dbmodels.BatchStatus.SUCCESS.value, dbmodels.BatchStatus.PARTIAL.value)
+        where_clauses.append(f"b.status IN {valid_statuses}")
+        params = {
+            "limit": limit_records,
+            "offset": offset,
+            "time_amount": time_amount
+        }
+        if search_criteria_names:
+            where_clauses.append("sc.target_name IN :names")
+            params["names"] = tuple(search_criteria_names)
+        if not select_inactive:
+            where_clauses.append("sc.is_soft_deleted = false")
+        if unit_of_time != dbmodels.TimeUnit.ALL_TIME:
+            where_clauses.append(f"b.started_at >= NOW() - INTERVAL ':time_amount {unit_of_time.value}'")
+        where_str = " AND ".join(where_clauses)
+
+        order_direction = "DESC" if sort_by == "Newest" else "ASC" # sorting
+
+        count_query = text(f"""
+            SELECT count(*)
+            FROM orchestration.batches b
+            JOIN config.search_criteria sc ON b.criteria_id = sc.id
+            WHERE {where_str}
+        """)
+        data_query = text(f"""
+            SELECT b.id, b.criteria_id, b.status, b.started_at, b.finished_at
+            FROM orchestration.batches b
+            JOIN config.search_criteria sc ON b.criteria_id = sc.id
+            WHERE {where_str}
+            ORDER BY b.started_at {order_direction}
+            LIMIT :limit OFFSET :offset
+        """)
+        try:
+            with self.engine.connect() as conn:
+                total_count = conn.execute(count_query, params).scalar() or 0
+                result = conn.execute(data_query, params)
+                batches = [
+                    dbmodels.BatchData(
+                        id=row.id,
+                        criteria_id=row.criteria_id,
+                        status=dbmodels.BatchStatus(row.status),
+                        started_at=row.started_at,
+                        finished_at=row.finished_at
+                    ) for row in result
+                ]
+                return total_count, batches
+        except Exception as e:
+            self.log_system_error(
+                error_source=dbmodels.ErrorSources.DATABASE,
+                module_name='get_all_batches_paged',
+                error_message=str(e),
+                stack_trace=traceback.format_exc()
+            )
+            return -1, []
 
     ############
     # LISTINGS #
