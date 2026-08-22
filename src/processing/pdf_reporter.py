@@ -250,7 +250,7 @@ class PDFReporter:
         date_fmt = mdates.DateFormatter('%d.%m.%y')
         ax.xaxis.set_major_formatter(date_fmt)
         plt.xticks(rotation=45, fontsize=8)
-        plt.title("Price Dynamics")
+        plt.title("Price Dynamics (per m²)")
         plt.ylabel("Price (PLN)")
         
         plt.legend(loc='upper center', bbox_to_anchor=(0.5, -0.15), ncol=3, fontsize=8, frameon=False)
@@ -277,7 +277,7 @@ class PDFReporter:
             plt.bar(x + offset, subset['offer_count'], width, label=t_type, alpha=0.8)
 
         plt.title(f"Market Price Structure: {city_name}")
-        plt.xlabel("Price Range (PLN)")
+        plt.xlabel("Price Range (per m²) (PLN)")
         plt.ylabel("Number of Offers")
         plt.xticks(x, city_df['price_range'].unique(), rotation=45, fontsize=9)
         if len(unique_types) > 1:

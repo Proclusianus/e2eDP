@@ -8,6 +8,7 @@ services:
       - POSTGRES_USER=${POSTGRES_USER}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
       - POSTGRES_DB=${POSTGRES_DB}
+      - TZ=Europe/Warsaw
     ports: # host_port:container_port
       - "54321:5432"
     volumes: #host_volume:container_volume
@@ -31,7 +32,12 @@ services:
       - AIRFLOW__CORE__CORE_AIRFLOW_HOME=/opt/airflow
       - _AIRFLOW_WWW_USER_USERNAME=${AIRFLOW_ADMIN_USER}
       - _AIRFLOW_WWW_USER_PASSWORD=${AIRFLOW_ADMIN_PASSWORD}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
       - RUNNING_IN_DOCKER=true
+      - PYTHONPATH=/opt/airflow/src
+      - TZ=Europe/Warsaw
     ports:
       - "8080:8080"
     volumes:
@@ -58,6 +64,7 @@ services:
       - POSTGRES_DB=${POSTGRES_DB}
       - PYTHONPATH=/app/src
       - RUNNING_IN_DOCKER=true
+      - TZ=Europe/Warsaw
     volumes:
       - ./src:/app/src
     command: >
@@ -74,6 +81,7 @@ services:
     container_name: pricing_tor_proxy
     environment:
       - TOR_PASSWORD=${TOR_PASSWORD}
+      - TZ=Europe/Warsaw
     ports:
       - "9050:9050" # SOCKS5 port
       - "9051:9051" # control port
@@ -100,6 +108,7 @@ services:
       - PROXY_SOCKS5_ENABLED=yes
       - HTTPPROXY=on
       - HTTPPROXY_LISTEN_ADDRESS=:8888
+      - TZ=Europe/Warsaw
     ports:
       - "55501:1080"
       - "55502:8888"

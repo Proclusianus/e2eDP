@@ -786,6 +786,30 @@ class DBManager:
             )
             return {}
 
+    def get_scheduled_criteria_ids(self, target_time: datetime.datetime) -> list[int]:
+        """Returns a list of active search criteria to be activated at target_time. Returns an empty list if none found."""
+        query = text("""
+            SELECT s.criteria_id 
+            FROM config.search_criteria_schedule s
+            JOIN config.search_criteria c ON s.criteria_id = c.id
+            WHERE s.execution_time = :t 
+            AND c.is_active = true 
+            AND c.is_soft_deleted = false
+        """)
+        try:
+            with self.engine.connect() as conn:
+                results = conn.execute(query, {"t": target_time}).fetchall()
+                return [row[0] for row in results]
+        except Exception as e:
+            self.log_system_error(
+                error_source='DATABASE',
+                module_name='get_scheduled_criteria_ids',
+                error_message=str(e),
+                stack_trace=traceback.format_exc(),
+                context_data={"target_time": str(target_time)}
+            )
+            return []
+
     ########################
     # GLOBAL NOTIFICATIONS #
     ########################

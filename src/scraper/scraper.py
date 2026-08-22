@@ -449,4 +449,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     main()
-    # Gotta add execution_log support here

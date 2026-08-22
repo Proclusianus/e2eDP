@@ -1,5 +1,5 @@
 # Definiowanie obrazu dla środowiska wykonawczego z airflowem i pythonem
-FROM apache/airflow:2.7.1
+FROM apache/airflow:2.9.1-python3.11
 
 USER root
 # Zależności systemowe dla Playwright

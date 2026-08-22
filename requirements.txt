@@ -4,6 +4,7 @@ pandas
 sqlalchemy
 psycopg2-binary
 playwright
+playwright-stealth
 python-dotenv
 streamlit
 numpy

@@ -721,7 +721,7 @@ def main():
         
     if success:
         if DEBUG: print(f"Analysis for batch_id: {BID} successful")
-        print(BID) # Input for analyzer.py
+        #print(BID)
         sys.exit(0)
     else:
         if DEBUG: print(f"Analysis for batch_id: {BID} failed")
