@@ -30,6 +30,7 @@ class SystemSetting:
     name_en: str
     description_pl: str | None
     description_en: str | None
+    last_run_at: datetime | None
 
 @dataclass(frozen=True)
 class SystemSettingChange:

@@ -19,7 +19,8 @@ CREATE TABLE IF NOT EXISTS "config"."system_settings" (
   "name_pl" varchar(100) NOT NULL,
   "name_en" varchar(100) NOT NULL,
   "description_pl" text,
-  "description_en" text
+  "description_en" text,
+  "last_run_at" timestamp
 );
 
 CREATE TABLE IF NOT EXISTS "config"."global_notification_rules" (

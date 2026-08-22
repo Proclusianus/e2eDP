@@ -1157,7 +1157,7 @@ class DBManager:
             Returns all system settings. If none are in the DB, or on error, returns an empty list.  
             Note that there should ALWAYS be >=1 setting in the DB.
         """
-        query = text("""SELECT setting_key, setting_value, is_enabled, value_type, name_pl, name_en, description_pl, description_en FROM config.system_settings ORDER BY name_en""")
+        query = text("""SELECT setting_key, setting_value, is_enabled, value_type, name_pl, name_en, description_pl, description_en, last_run_at FROM config.system_settings ORDER BY name_en""")
         try:
             sys_settings = []
             with self.engine.connect() as conn:
@@ -1172,7 +1172,8 @@ class DBManager:
                         name_pl=r['name_pl'],
                         name_en=r['name_en'],
                         description_pl=r['description_pl'],
-                        description_en=r['description_en']
+                        description_en=r['description_en'],
+                        last_run_at=r['last_run_at']
                     ))
                 return sys_settings
         except Exception as e:
@@ -1279,6 +1280,15 @@ class DBManager:
             Returns True on success, or False if the operation failed.
         """
         return self.modify_system_settings(DEFAULT_SYSTEM_SETTINGS)
+
+    def _update_system_setting_last_run(self, conn, key: str):
+        """Private method. Updates the last_run_at column after performing the system setting's action."""
+        query = text("""
+            UPDATE config.system_settings 
+            SET last_run_at = NOW() 
+            WHERE setting_key = :key
+        """)
+        conn.execute(query, {"key": key})
 
     ##################################
     # EXECUTION & ERROR LOGS METHODS #
@@ -2582,6 +2592,75 @@ class DBManager:
                 context_data={"batch_id": batch_id, "code": anomaly_analysis_key}
             )
             return []
+
+    ###############
+    # MAINTENANCE #
+    ###############
+    def maintenance_delete_old_raw_listings(self, days: int) -> int:
+        """Removes old raw listings as per the raw_retention_days setting. Returns the amount of removed records."""
+        query = text("""
+            DELETE FROM raw.listings 
+            WHERE scraped_at < NOW() - (:d || ' days')::interval
+        """)
+        try:
+            with self.engine.begin() as conn:
+                res = conn.execute(query, {"d": days})
+                self._update_system_setting_last_run(conn, 'raw_retention_days')
+                return res.rowcount
+        except Exception as e:
+            self.log_system_error(dbmodels.ErrorSources.DATABASE, "maintenance_raw_retention_days", str(e), traceback.format_exc(), {"days": days})
+            return -1
+
+    def maintenance_deactivate_old_clean_listings(self, days: int) -> int:
+        """Deactivates old clean listings as per the clean_inactivity_days setting. Returns the amount of deactivated clean listings."""
+        query = text("""
+            UPDATE clean.listings 
+            SET is_active = false 
+            WHERE last_seen_at < NOW() - (:d || ' days')::interval AND is_active = true
+        """)
+        try:
+            with self.engine.begin() as conn:
+                res = conn.execute(query, {"d": days})
+                self._update_system_setting_last_run(conn, 'clean_inactivity_days')
+                return res.rowcount
+        except Exception as e:
+            self.log_system_error(dbmodels.ErrorSources.DATABASE, "maintenance_clean_inactivity_days", str(e), traceback.format_exc(), {"days": days})
+            return -1
+
+    def maintenance_delete_old_exec_logs(self, days: int) -> int:
+        """Removes old execution logs as per the execution_logs_retention_days setting. Returns the amount of removed records."""
+        queries = [
+            text("DELETE FROM raw.execution_logs WHERE started_at < NOW() - (:d || ' days')::interval"),
+            text("DELETE FROM clean.execution_logs WHERE started_at < NOW() - (:d || ' days')::interval"),
+            text("DELETE FROM analytics.execution_logs WHERE started_at < NOW() - (:d || ' days')::interval")
+        ]
+        total_deleted = 0
+        try:
+            with self.engine.begin() as conn:
+                for q in queries:
+                    res = conn.execute(q, {"d": days})
+                    total_deleted += res.rowcount
+                self._update_system_setting_last_run(conn, 'execution_logs_retention_days')
+                return total_deleted
+        except Exception as e:
+            self.log_system_error(dbmodels.ErrorSources.DATABASE, "execution_logs_retention_days", str(e), traceback.format_exc(), {"days": days})
+            return -1
+
+    def maintenance_delete_old_system_errors(self, days: int) -> int:
+        """Removes old system errors as per the system_errors_retention_days setting. Returns the amount of removed records."""
+        query = text("""
+            DELETE FROM orchestration.system_errors 
+            WHERE occurred_at < NOW() - (:d || ' days')::interval
+        """)
+        try:
+            with self.engine.begin() as conn:
+                res = conn.execute(query, {"d": days})
+                deleted_count = res.rowcount
+                self._update_system_setting_last_run(conn, 'system_errors_retention_days')
+                return deleted_count
+        except Exception as e:
+            self.log_system_error(dbmodels.ErrorSources.DATABASE, "maintenance_errors", str(e), traceback.format_exc(), {"days": days})
+            return -1
 
 # Test if a connection may be established
 if __name__ == "__main__":
