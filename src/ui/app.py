@@ -1,4 +1,5 @@
 import streamlit as st
+from utils import get_browser_timezone
 
 st.set_page_config(page_title="Housing Price Tracker", page_icon="🏢", layout="wide")
 
@@ -25,5 +26,7 @@ if "last_page" not in st.session_state:
 if st.session_state.last_page != pg.title:
     st.session_state.pop('sys_settings_initialized', None)
     st.session_state.last_page = pg.title
+
+get_browser_timezone()
 
 pg.run()

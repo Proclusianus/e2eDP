@@ -7,6 +7,7 @@ import streamlit as st
 
 from database.models import AppSystemError, ErrorSources
 from database.db_manager import DBManager
+from ui.utils import format_dt_to_local
 
 
 ### A small trick to persist widget values between page switching - when widgets are hidden they remove their session_state data
@@ -14,7 +15,9 @@ widget_names = {'sys_errors_page_limit_amount', 'sys_errors_page_number', 'sys_e
 if "syserr_first_page_open_in_session" in st.session_state: # Page must've been loaded before...
     if 'sys_errors_page_change_checker' not in st.session_state: # Page is being opened again...
         for n in widget_names:
-            st.session_state[f"{n}"] = st.session_state[f"{n}_store"]
+            stored_val = st.session_state.get(f"{n}_store", None) # in case user enters the page and leaves it without reloading it
+            if stored_val is not None:
+                st.session_state[f"{n}"] = stored_val
     else: # User is on-page...
         for k, v in st.session_state.items():
             if k in widget_names:
@@ -57,7 +60,7 @@ def draw_syserr_card(err: AppSystemError):
         with col_err_id:
             st.markdown(f"🔑 Error ID: {err.id}")
         with col_status:
-            st.write(f"🕒 {err.occurred_at.strftime('%H:%M:%S')}")
+            st.write(f"🕒 {format_dt_to_local(err.occurred_at, '%H:%M:%S')}")
             st.caption(err.occurred_at.strftime('%Y-%m-%d'))
 
         st.error(f"**Error:** {err.error_message}")

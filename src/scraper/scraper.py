@@ -402,6 +402,7 @@ def scrape_for_id() -> int:
                         finished_at=datetime.datetime.now(datetime.timezone.utc)
                     ))
 
+    DB.insert_raw_execution_logs_bulk(execution_logs)
     successful = 0
     count = 0
     for e in scraping_success_data:

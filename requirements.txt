@@ -7,8 +7,10 @@ playwright
 playwright-stealth
 python-dotenv
 streamlit
+streamlit-javascript
 numpy
 matplotlib
 fpdf2
 Pillow
 pytest
+tzdata

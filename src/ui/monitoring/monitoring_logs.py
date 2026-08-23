@@ -10,6 +10,7 @@ import streamlit as st
 from database.db_manager import DBManager
 from database.models import LogStatus, TimeUnit, SearchTargetType, SearchTarget, RawExecLog, CleanExecLog, AnalyticsExecLog, AnomalyAnalysis, BatchAnalysis
 from database.exceptions import DatabaseError
+from ui.utils import format_dt_to_local
 
 
 ### A small trick to persist widget values between page switching - when widgets are hidden they remove their session_state data
@@ -18,7 +19,9 @@ widget_names = {'logs_sc_gnr_search_all', 'logs_showing_soft_deleted', 'logs_sc_
 if "logs_first_page_open_in_session" in st.session_state: # Page must've been loaded before...
     if 'logs_page_change_checker' not in st.session_state: # Page is being opened again...
         for n in widget_names:
-            st.session_state[f"{n}"] = st.session_state[f"{n}_store"]
+            stored_val = st.session_state.get(f"{n}_store", None) # in case user enters the page and leaves it without reloading it
+            if stored_val is not None:
+                st.session_state[f"{n}"] = stored_val
     else: # User is on-page...
         for k, v in st.session_state.items():
             if k in widget_names:
@@ -124,7 +127,7 @@ def draw_execlog_card(log: RawExecLog | CleanExecLog | AnalyticsExecLog):
 
         col_time, col_duration, col_info = st.columns(3)
         with col_time:
-            st.caption(f"📅 **Started:** {log.started_at.strftime('%Y-%m-%d %H:%M:%S')}")
+            st.caption(f"📅 **Started:** {format_dt_to_local(log.started_at)}")
         with col_duration:
             st.caption(f"⏱️ **Duration:** {duration}")
         with col_info:

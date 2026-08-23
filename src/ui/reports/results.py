@@ -10,6 +10,8 @@ from database.db_manager import DBManager
 import database.models as dbmodels
 from database.exceptions import DatabaseError
 from processing.pdf_reporter import PDFReporter
+from ui.utils import format_dt_to_local
+
 
 ### A small trick to persist widget values between page switching - when widgets are hidden they remove their session_state data
 widget_names = {'results_sc_search_all', 'results_showing_soft_deleted', 'results_sc_select', 'results_time_amount', 
@@ -17,7 +19,9 @@ widget_names = {'results_sc_search_all', 'results_showing_soft_deleted', 'result
 if "results_first_page_open_in_session" in st.session_state: # Page must've been loaded before...
     if 'results_page_change_checker' not in st.session_state: # Page is being opened again...
         for n in widget_names:
-            st.session_state[f"{n}"] = st.session_state[f"{n}_store"]
+            stored_val = st.session_state.get(f"{n}_store", None) # in case user enters the page and leaves it without reloading it
+            if stored_val is not None:
+                st.session_state[f"{n}"] = stored_val
     else: # User is on-page...
         for k, v in st.session_state.items():
             if k in widget_names:
@@ -74,8 +78,8 @@ def draw_batch_card(batch: dbmodels.BatchData, target_map: dict[int, str]):
             st.markdown(f"**Target:** {target_name}")
             st.caption(f"Status: {batch.status.value}")
         with col_time:
-            start_str = batch.started_at.strftime("%Y-%m-%d %H:%M:%S")
-            end_str = batch.finished_at.strftime("%Y-%m-%d %H:%M:%S") if batch.finished_at else "In progress..."
+            start_str = format_dt_to_local(batch.started_at)
+            end_str = format_dt_to_local(batch.finished_at) if batch.finished_at else "In progress..."
             st.write("**Duration Information:**")
             st.caption(f"📅 Start: {start_str}")
             st.caption(f"🏁 End: {end_str}")
