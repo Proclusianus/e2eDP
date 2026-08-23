@@ -11,3 +11,4 @@ numpy
 matplotlib
 fpdf2
 Pillow
+pytest
