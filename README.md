@@ -10,7 +10,9 @@ An End-to-End Data Engineering platform designed to automate the collection, pro
 
 ---
 
-# Application Showcase:  
+## Application Showcase:  
+The report produced by this application in this video can be found in the main directory of this repository and is named Example_Report.pdf  
+  
 [![Watch the video](https://res.cloudinary.com/v2wiqxbn/video/upload/c_fill,g_center,h_450,w_800/v1788128384/showcase.jpg)](https://res.cloudinary.com/v2wiqxbn/video/upload/v1788128384/showcase.mp4)
 
 ## 🌟 Key Features
