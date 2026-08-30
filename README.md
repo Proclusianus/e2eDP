@@ -10,6 +10,8 @@ An End-to-End Data Engineering platform designed to automate the collection, pro
 
 ---
 
+![Press here to see the showcase!](https://res.cloudinary.com/v2wiqxbn/video/upload/v1788128384/showcase.mp4)
+
 ## 🌟 Key Features
 
 *   **🤖 Advanced Automation**: Distributed scraping powered by **Playwright & Stealth**, orchestrated by **Apache Airflow**. Features automated IP rotation via **ProtonVPN (Gluetun Gateway)** to ensure continuous data flow.
