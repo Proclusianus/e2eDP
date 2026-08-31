@@ -29,6 +29,19 @@ The report produced by this application in this video can be found in the main d
 
 ---
 
+## 🛠️ Tech Stack
+
+| Layer | Technologies |
+| :--- | :--- |
+| **Languages** | Python 3.11, SQL (PostgreSQL Dialect) |
+| **Database** | PostgreSQL 15, SQLAlchemy (ORM) |
+| **Orchestration** | Apache Airflow 2.9 |
+| **Data Processing** | Pandas, NumPy |
+| **Scraping** | Playwright, Playwright-Stealth |
+| **Infrastructure** | Docker, Docker Compose, Gluetun (VPN Gateway) |
+| **Quality** | Pytest (Unit & Logic Testing) |
+| **Reporting** | Streamlit, FPDF2 (PDF Engine) |
+
 ## 🏗️ System Architecture & Design
 
 ### 1. Core Infrastructure & Data Model
@@ -52,21 +65,6 @@ The report produced by this application in this video can be found in the main d
     ![Maintenance](doc/SD_Database_Maintenance.png)
 *   **Operations Status Monitoring**: Real-time health checking and error reporting within the dashboard.
     ![Monitoring](doc/SD_Monitor_Operations_Status.png)
-
----
-
-## 🛠️ Tech Stack
-
-| Layer | Technologies |
-| :--- | :--- |
-| **Languages** | Python 3.11, SQL (PostgreSQL Dialect) |
-| **Database** | PostgreSQL 15, SQLAlchemy (ORM) |
-| **Orchestration** | Apache Airflow 2.9 |
-| **Data Processing** | Pandas, NumPy |
-| **Scraping** | Playwright, Playwright-Stealth |
-| **Infrastructure** | Docker, Docker Compose, Gluetun (VPN Gateway) |
-| **Quality** | Pytest (Unit & Logic Testing) |
-| **Reporting** | Streamlit, FPDF2 (PDF Engine) |
 
 ---
 
